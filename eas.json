@@ -10,6 +10,7 @@
         "EAS_BUILD_DISABLE_NETWORK": "0"
       },
       "android": {
+        "image": "latest",
         "buildType": "apk"
       }
     },

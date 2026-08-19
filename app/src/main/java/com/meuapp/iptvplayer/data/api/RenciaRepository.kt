@@ -1,63 +1,64 @@
 package com.meuapp.iptvplayer.data.api
 
 import com.meuapp.iptvplayer.data.model.DeviceCheckResponse
+import com.meuapp.iptvplayer.data.model.RenciaLoginResponse
 import com.meuapp.iptvplayer.data.model.UltraConfigResponse
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 class RenciaRepository {
-
     companion object {
-        const val BASE_URL = "https://renciaapp.manus.space/"
+        const val BASE_URL = "https://renciaapp-7uusyuwz.manus.space/"
+        const val APP_ID = "rencia"
     }
 
     private val api: RenciaApiService = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .client(
-            OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .build()
-        )
+        .client(OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build())
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(RenciaApiService::class.java)
 
-    suspend fun authenticateMac(rawMac: String): Result<Session> = runCatching {
-        val mac = normalizeMac(rawMac)
-            ?: error("Digite um MAC válido no formato AA:BB:CC:DD:EE:FF")
-        val deviceResponse = api.checkDevice(mac)
-        if (!deviceResponse.isSuccessful) error("Não foi possível validar este aparelho")
-        val device = deviceResponse.body() ?: error("Resposta inválida do servidor")
-        if (!device.found || !device.allowed) {
-            error("Acesso indisponível para este aparelho")
-        }
+    suspend fun authenticateCustomer(login: String, password: String): Result<Session> = runCatching {
+        require(login.isNotBlank() && password.isNotBlank()) { "Informe usuário e senha." }
+        val response = api.loginCustomer(APP_ID, mapOf("login" to login.trim(), "password" to password))
+        val config = response.body()
+        if (!response.isSuccessful || config == null) error(config?.error ?: "Usuário ou senha inválidos.")
+        if (!config.registered || !config.allowed) error(config.blockMessage ?: "Este acesso está indisponível.")
+        toSession(config, login.trim(), password)
+    }
 
-        val sourcesResponse = api.getPlaylistSources(mac)
-        if (!sourcesResponse.isSuccessful) error("Não foi possível carregar a lista deste aparelho")
-        val sources = sourcesResponse.body()?.data.orEmpty()
-        val source = sources.firstOrNull { it.type.equals("xtream", ignoreCase = true) }
-            ?: sources.firstOrNull()
-            ?: error("Nenhuma lista foi atribuída a este aparelho")
+    suspend fun verifyCustomerAccess(login: String, password: String): Result<Session> =
+        authenticateCustomer(login, password)
 
-        val serverUrl = source.url?.trim()?.trimEnd('/')
-            ?: error("A lista atribuída não possui servidor configurado")
-        val username = source.username?.trim().orEmpty()
-        val password = source.password?.trim().orEmpty()
+    private fun toSession(config: RenciaLoginResponse, clientLogin: String, clientPassword: String): Session {
+        val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
+            ?: error("Nenhuma playlist foi liberada para esta conta.")
+        val url = playlistUrl.toHttpUrlOrNull()
+            ?: error("A playlist recebida não possui uma URL válida.")
+        val username = url.queryParameter("username")?.trim().orEmpty()
+        val password = url.queryParameter("password")?.trim().orEmpty()
         if (username.isBlank() || password.isBlank()) {
-            error("A lista atribuída não possui credenciais válidas")
+            error("A playlist deve ser uma URL Xtream com username e password.")
         }
-
-        Session(
-            mac = mac,
+        val defaultPort = if (url.scheme == "https") 443 else 80
+        val port = if (url.port == defaultPort) "" else ":${url.port}"
+        val serverUrl = "${url.scheme}://${url.host}$port"
+        return Session(
+            mac = config.mac.orEmpty(),
             serverUrl = serverUrl,
             username = username,
             password = password,
-            status = device.status,
-            expirationDate = device.expirationDate,
-            appName = device.app
+            status = "active",
+            expirationDate = null,
+            appName = config.appName ?: "Rencia",
+            clientLogin = clientLogin,
+            clientPassword = clientPassword,
+            layoutId = config.layoutId ?: "classic",
+            playlistUrl = playlistUrl
         )
     }
 
@@ -76,9 +77,7 @@ class RenciaRepository {
     }
 
     fun normalizeMac(rawMac: String): String? {
-        val compact = rawMac
-            .filter { it.isLetterOrDigit() }
-            .uppercase()
+        val compact = rawMac.filter { it.isLetterOrDigit() }.uppercase()
         if (compact.length != 12 || compact.any { it !in "0123456789ABCDEF" }) return null
         return compact.chunked(2).joinToString(":")
     }

@@ -1,6 +1,8 @@
 package com.meuapp.iptvplayer.ui.home
 
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PorterDuff
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -27,6 +29,7 @@ import com.meuapp.iptvplayer.ui.settings.FavoritesActivity
 import com.meuapp.iptvplayer.ui.settings.SettingsActivity
 import com.meuapp.iptvplayer.ui.vod.VodActivity
 import com.meuapp.iptvplayer.util.SessionStore
+import com.meuapp.iptvplayer.util.RemoteLayoutTheme
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -60,6 +63,9 @@ class HomeActivity : AppCompatActivity() {
             finish()
             return
         }
+
+        val accent = Color.parseColor(RemoteLayoutTheme.accent(RemoteLayoutTheme.current(this)))
+        binding.homeBackground.setColorFilter(accent, PorterDuff.Mode.SRC_ATOP)
 
         bindAction(binding.btnLiveTv) { open(ChannelListActivity::class.java) }
         bindAction(binding.btnEpg) { openEpgPicker() }
@@ -103,19 +109,20 @@ class HomeActivity : AppCompatActivity() {
 
     private fun verifyAccessNow() {
         val session = SessionStore.getSavedSession(this) ?: return
+        val login = session.clientLogin
+        val password = session.clientPassword
+        if (login.isNullOrBlank() || password.isNullOrBlank()) return
         lifecycleScope.launch {
-            renciaRepository.verifyAccess(session.mac)
-                .onSuccess { access ->
-                    if (!access.found || !access.allowed) {
-                        SessionStore.clear(this@HomeActivity)
-                        Toast.makeText(
-                            this@HomeActivity,
-                            "Acesso indisponível para este aparelho",
-                            Toast.LENGTH_LONG
-                        ).show()
-                        startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
-                        finish()
-                    }
+            renciaRepository.verifyCustomerAccess(login, password)
+                .onFailure {
+                    SessionStore.clear(this@HomeActivity)
+                    Toast.makeText(
+                        this@HomeActivity,
+                        "Acesso indisponível para esta conta",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
+                    finish()
                 }
         }
     }

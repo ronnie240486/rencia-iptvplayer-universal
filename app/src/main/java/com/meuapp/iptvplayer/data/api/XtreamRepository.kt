@@ -21,7 +21,11 @@ data class Session(
     val password: String,
     val status: String? = null,
     val expirationDate: String? = null,
-    val appName: String? = null
+    val appName: String? = null,
+    val clientLogin: String? = null,
+    val clientPassword: String? = null,
+    val layoutId: String? = null,
+    val playlistUrl: String? = null
 )
 
 class XtreamRepository {

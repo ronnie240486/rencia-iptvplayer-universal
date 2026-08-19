@@ -2,13 +2,22 @@ package com.meuapp.iptvplayer.data.api
 
 import com.meuapp.iptvplayer.data.model.DeviceCheckResponse
 import com.meuapp.iptvplayer.data.model.PlaylistSourcesResponse
+import com.meuapp.iptvplayer.data.model.RenciaLoginResponse
 import com.meuapp.iptvplayer.data.model.UltraConfigResponse
 import retrofit2.Response
+import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import retrofit2.http.Url
 
 interface RenciaApiService {
+    @POST("/api/v5/apps/{appId}/login")
+    suspend fun loginCustomer(
+        @Path("appId") appId: String,
+        @Body credentials: Map<String, String>
+    ): Response<RenciaLoginResponse>
 
     @GET("/api/device/check")
     suspend fun checkDevice(@Query("mac") mac: String): Response<DeviceCheckResponse>

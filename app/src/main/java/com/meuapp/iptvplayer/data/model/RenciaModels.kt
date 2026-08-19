@@ -26,6 +26,17 @@ data class PlaylistSource(
     @SerializedName("type") val type: String? = null
 )
 
+data class RenciaLoginResponse(
+    @SerializedName("registered") val registered: Boolean = false,
+    @SerializedName("allowed") val allowed: Boolean = false,
+    @SerializedName("mac") val mac: String? = null,
+    @SerializedName("app_name") val appName: String? = null,
+    @SerializedName("layout_id") val layoutId: String? = null,
+    @SerializedName("playlist_urls") val playlistUrls: List<String> = emptyList(),
+    @SerializedName("block_message") val blockMessage: String? = null,
+    @SerializedName("error") val error: String? = null
+)
+
 data class UltraConfigResponse(
     @SerializedName("app_name") val appName: String? = null,
     @SerializedName("logo_url") val logoUrl: String? = null,

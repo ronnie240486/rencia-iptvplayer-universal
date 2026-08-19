@@ -1,8 +1,6 @@
 package com.meuapp.iptvplayer.ui.home
 
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.PorterDuff
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -58,14 +56,20 @@ class HomeActivity : AppCompatActivity() {
         binding = ActivityHomeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        if (SessionStore.getSavedSession(this) == null) {
+        val savedSession = SessionStore.getSavedSession(this)
+        if (savedSession == null ||
+            savedSession.clientLogin.isNullOrBlank() ||
+            savedSession.clientPassword.isNullOrBlank()
+        ) {
+            SessionStore.clear(this)
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
 
-        val accent = Color.parseColor(RemoteLayoutTheme.accent(RemoteLayoutTheme.current(this)))
-        binding.homeBackground.setColorFilter(accent, PorterDuff.Mode.SRC_ATOP)
+        val layoutId = RemoteLayoutTheme.current(this)
+        binding.homeBackground.clearColorFilter()
+        binding.homeBackground.setImageResource(RemoteLayoutTheme.background(layoutId))
 
         bindAction(binding.btnLiveTv) { open(ChannelListActivity::class.java) }
         bindAction(binding.btnEpg) { openEpgPicker() }

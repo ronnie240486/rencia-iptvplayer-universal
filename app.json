@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Rencia Player",
+    "slug": "rencia-iptvplayer-universal",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "android": {
+      "package": "com.meuapp.iptvplayer",
+      "versionCode": 1
+    }
+  }
+}

@@ -5,6 +5,9 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EAS_BUILD_DISABLE_NETWORK": "0"
+      },
       "android": {
         "buildType": "apk"
       }

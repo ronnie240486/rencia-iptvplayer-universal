@@ -1,0 +1,15 @@
+{
+  "name": "rencia-iptvplayer-universal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rencia Player Android nativo preparado para EAS Build",
+  "scripts": {
+    "android": "cd android && ./gradlew :app:assembleDebug",
+    "eas-build-post-install": "chmod +x ./android/gradlew"
+  },
+  "dependencies": {
+    "expo": "~54.0.29",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
+  }
+}

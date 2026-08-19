@@ -1,0 +1,39 @@
+<resources>
+    <string name="app_name">SUPREMUS</string>
+    <string name="login_title">Entrar</string>
+    <string name="hint_mac">MAC do aparelho (AA:BB:CC:DD:EE:FF)</string>
+    <string name="btn_activate">Ativar aparelho</string>
+    <string name="error_login">Não foi possível ativar este aparelho.</string>
+    <string name="copy_mac">Copiar MAC</string>
+    <string name="mac_copied">MAC copiado</string>
+    <string name="channels_title">Canais</string>
+    <string name="epg_title">Guia de Programação</string>
+    <string name="loading">Carregando…</string>
+
+    <!-- Home -->
+    <string name="home_eyebrow">Bem-vindo de volta</string>
+    <string name="action_search">Buscar</string>
+    <string name="action_back">Voltar</string>
+    <string name="status_connected">Conectado</string>
+    <string name="tile_live_tv">Live TV</string>
+    <string name="tile_epg">EPG</string>
+    <string name="tile_vod">VOD</string>
+    <string name="tile_series">Séries</string>
+    <string name="tile_favorites">Favoritos</string>
+    <string name="tile_account">Conta</string>
+    <string name="tile_settings">Config.</string>
+    <string name="sub_channels">%d canais</string>
+    <string name="sub_epg">Programação</string>
+    <string name="sub_vod">Filmes</string>
+    <string name="sub_series">Temporadas</string>
+    <string name="sub_account">Minha assinatura</string>
+
+    <!-- Configurações -->
+    <string name="settings_title">Configurações</string>
+    <string name="settings_sub">Personalização da interface</string>
+    <string name="settings_bar_title">Barra de cor nas categorias</string>
+    <string name="settings_bar_desc">Destaca a categoria selecionada com uma tarja sólida</string>
+    <string name="settings_choose_color">Escolha a cor</string>
+    <string name="settings_backdrop_title">Fundo com pôster em destaque</string>
+    <string name="settings_backdrop_desc">Mostra a capa desfocada do item em destaque atrás do menu</string>
+</resources>

@@ -1,12 +1,18 @@
 {
   "expo": {
     "name": "Rencia Player",
-    "slug": "rencia-iptvplayer-universal",
+    "slug": "ronnie",
+    "owner": "ronnie56s-team",
     "version": "1.0.0",
     "orientation": "landscape",
     "android": {
       "package": "com.meuapp.iptvplayer",
       "versionCode": 1
+    },
+    "extra": {
+      "eas": {
+        "projectId": "62706d51-c51d-40b6-b35a-d99a16fe4f73"
+      }
     }
   }
 }

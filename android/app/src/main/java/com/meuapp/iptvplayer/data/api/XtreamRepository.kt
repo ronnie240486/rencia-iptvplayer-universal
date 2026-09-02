@@ -33,9 +33,17 @@ data class Session(
 
 class XtreamRepository {
 
+    // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
+    // jeito que confunde negociacao HTTP/2 e faz o OkHttp achar que o corpo
+    // foi cortado no meio ("unexpected end of stream") mesmo quando o
+    // servidor mandou tudo certo -- forcar HTTP/1.1 (mais tolerante a esse
+    // tipo de servidor) e permitir nova tentativa em falha de conexao
+    // resolve a grande maioria desses casos.
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.NONE
         })
@@ -79,13 +87,28 @@ class XtreamRepository {
      * corpo vinha vazio ou diferente do esperado). Com isso, qualquer
      * problema (servidor fora do ar, usuário/senha errados, resposta que
      * não é JSON) aparece com uma mensagem que mostra o que aconteceu de
-     * verdade. */
+     * verdade. Também tenta de novo uma vez com conexão nova se a LEITURA
+     * do corpo falhar no meio (comum em painéis Xtream simples que cortam a
+     * conexão de um jeito que o OkHttp interpreta como corte no meio,
+     * mesmo quando o servidor mandou tudo certo). */
     private suspend fun fetchBody(url: String): String {
         val response = api.call(url)
         if (!response.isSuccessful) {
             error("O servidor respondeu com erro HTTP ${response.code()} para esta chamada.")
         }
-        val body = response.body()?.string()?.trim().orEmpty()
+        val body = try {
+            response.body()?.string()?.trim().orEmpty()
+        } catch (e: Exception) {
+            // Primeira tentativa cortou no meio -- tenta de novo, com
+            // conexão nova, antes de desistir de vez.
+            runCatching {
+                val retryResponse = api.call(url)
+                retryResponse.body()?.string()?.trim().orEmpty()
+            }.getOrNull() ?: error(
+                "A conexão com o servidor foi cortada antes de terminar de responder. " +
+                    "Isso costuma ser instabilidade do próprio painel/servidor -- tente de novo em alguns segundos."
+            )
+        }
         if (body.isEmpty()) {
             error("O servidor respondeu vazio. Confira se o usuário/senha/servidor da playlist estão corretos.")
         }

@@ -71,6 +71,12 @@ class SettingsActivity : AppCompatActivity() {
         configureRow(R.id.rowAccount, "●", "Conta", session?.status ?: "Aparelho ativado") {
             startActivity(Intent(this, AccountActivity::class.java))
         }
+        configureRow(R.id.rowRefreshContent, "↻", "Atualizar conteúdo", "Buscar categorias e listas novamente agora") {
+            refreshContentNow(mac)
+        }
+        configureRow(R.id.rowSwitchPlaylist, "⇄", "Trocar de lista", "Ver listas disponíveis para este MAC") {
+            showPlaylistPicker(mac)
+        }
         configureRow(R.id.rowDevice, "ID", "MAC do dispositivo", mac.ifBlank { "Não informado" }) {
             if (mac.isBlank()) {
                 showInfo("MAC do dispositivo", "Nenhum MAC foi cadastrado ainda.")
@@ -123,6 +129,71 @@ class SettingsActivity : AppCompatActivity() {
         row.findViewById<android.widget.TextView>(R.id.tvRowTitle).text = title
         row.findViewById<android.widget.TextView>(R.id.tvRowSubtitle).text = subtitle
         row.setOnClickListener { action() }
+    }
+
+    /** Refaz a ativação por MAC do zero agora mesmo (em vez de esperar a
+     * verificação automática periódica) -- útil quando o usuário sabe que
+     * acabou de mudar algo no painel e não quer esperar. */
+    private fun refreshContentNow(mac: String) {
+        if (mac.isBlank()) {
+            showInfo("Atualizar conteúdo", "Nenhum MAC cadastrado.")
+            return
+        }
+        Toast.makeText(this, "Atualizando...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            renciaRepository.authenticateByMac(mac)
+                .onSuccess { session ->
+                    SessionStore.saveSession(this@SettingsActivity, session)
+                    Toast.makeText(this@SettingsActivity, "Conteúdo atualizado", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure { error ->
+                    showInfo("Atualizar conteúdo", error.message ?: "Não foi possível atualizar agora.")
+                }
+        }
+    }
+
+    /** O painel pode ter mais de uma lista cadastrada pro mesmo MAC (lista
+     * principal + alternativas/backup) -- mostra as opções e troca a sessão
+     * ativa pra qualquer uma que o usuário escolher. */
+    private fun showPlaylistPicker(mac: String) {
+        if (mac.isBlank()) {
+            showInfo("Trocar de lista", "Nenhum MAC cadastrado.")
+            return
+        }
+        Toast.makeText(this, "Buscando listas disponíveis...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            renciaRepository.listAvailablePlaylists(mac)
+                .onSuccess { options ->
+                    if (options.size == 1) {
+                        showInfo("Trocar de lista", "Só existe uma lista cadastrada para este MAC (${options.first().label}).")
+                        return@onSuccess
+                    }
+                    val labels = options.map { it.label }.toTypedArray()
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle("Escolha a lista")
+                        .setItems(labels) { _, which ->
+                            applyPlaylist(mac, options[which])
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
+                }
+                .onFailure { error ->
+                    showInfo("Trocar de lista", error.message ?: "Não foi possível buscar as listas.")
+                }
+        }
+    }
+
+    private fun applyPlaylist(mac: String, option: RenciaRepository.PlaylistOption) {
+        lifecycleScope.launch {
+            renciaRepository.switchToPlaylist(mac, option.playlistUrl)
+                .onSuccess { session ->
+                    SessionStore.saveSession(this@SettingsActivity, session)
+                    Toast.makeText(this@SettingsActivity, "Lista alterada: ${option.label}", Toast.LENGTH_LONG).show()
+                }
+                .onFailure { error ->
+                    showInfo("Trocar de lista", error.message ?: "Não foi possível trocar de lista.")
+                }
+        }
     }
 
     private fun runDiagnostic(mac: String) {

@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.meuapp.iptvplayer.R
+import com.meuapp.iptvplayer.data.api.RenciaRepository
 import com.meuapp.iptvplayer.data.api.XtreamRepository
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -38,6 +39,7 @@ class ChannelListActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityChannelListBinding
     private val repository = XtreamRepository()
+    private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var subcategoryAdapter: CategorySidebarAdapter
     private lateinit var channelAdapter: ChannelAdapter
@@ -180,7 +182,16 @@ class ChannelListActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
         lifecycleScope.launch {
-            repository.getLiveCategories(session)
+            // Confere na hora se a playlist ligada a esse MAC mudou no
+            // painel (ex: trocou de lista) -- sem isso, só descobria depois
+            // de até 5 minutos parado na tela Home, e enquanto isso toda
+            // categoria vinha vazia porque ainda apontava pro servidor
+            // antigo.
+            val activeSession = renciaRepository.refreshSessionIfChanged(session)
+                .getOrNull()
+                ?.also { SessionStore.saveSession(this@ChannelListActivity, it) }
+                ?: session
+            repository.getLiveCategories(activeSession)
                 .onSuccess { categories ->
                     sidebarAdapter.submitList(categories)
                     if (categories.isEmpty()) {

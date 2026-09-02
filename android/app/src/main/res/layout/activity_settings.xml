@@ -26,6 +26,8 @@
                 android:padding="20dp">
 
                 <include android:id="@+id/rowAccount" layout="@layout/setting_row" />
+                <include android:id="@+id/rowRefreshContent" layout="@layout/setting_row" />
+                <include android:id="@+id/rowSwitchPlaylist" layout="@layout/setting_row" />
                 <include android:id="@+id/rowDevice" layout="@layout/setting_row" />
                 <include android:id="@+id/rowSupport" layout="@layout/setting_row" />
                 <include android:id="@+id/rowCache" layout="@layout/setting_row" />

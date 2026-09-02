@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.meuapp.iptvplayer.R
+import com.meuapp.iptvplayer.data.api.RenciaRepository
 import com.meuapp.iptvplayer.data.api.XtreamRepository
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.VodStream
@@ -28,6 +29,7 @@ class VodActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityVodBinding
     private val repository = XtreamRepository()
+    private val renciaRepository = RenciaRepository()
     private lateinit var categoryAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: VodAdapter
     private var selectedPosterUrl: String? = null
@@ -125,7 +127,11 @@ class VodActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
         lifecycleScope.launch {
-            repository.getVodCategories(session)
+            val activeSession = renciaRepository.refreshSessionIfChanged(session)
+                .getOrNull()
+                ?.also { SessionStore.saveSession(this@VodActivity, it) }
+                ?: session
+            repository.getVodCategories(activeSession)
                 .onSuccess { categories -> categoryAdapter.submitList(sortWithAdultLast(categories)) }
                 .onFailure {
                     binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"

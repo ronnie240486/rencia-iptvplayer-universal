@@ -117,6 +117,45 @@ class RenciaRepository {
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
     }
 
+    /** Uma lista/playlist disponível para o MAC, com um rótulo legível pra
+     * mostrar no seletor de "trocar de lista". */
+    data class PlaylistOption(val label: String, val playlistUrl: String)
+
+    /** Alguns paineis cadastram MAIS DE UMA lista pro mesmo MAC (ex: lista
+     * principal + listas extras/backup). Junta a lista principal
+     * (checkDevice) com as alternativas (getPlaylistSources), sem repetir
+     * URLs iguais. */
+    suspend fun listAvailablePlaylists(rawMac: String): Result<List<PlaylistOption>> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val options = mutableListOf<PlaylistOption>()
+
+        runCatching { api.checkDevice(mac) }.getOrNull()?.body()?.urlM3u8
+            ?.takeIf { it.isNotBlank() }
+            ?.let { options.add(PlaylistOption("Lista principal", it)) }
+
+        runCatching { api.getPlaylistSources(mac) }.getOrNull()?.body()?.data
+            ?.forEachIndexed { index, source ->
+                val url = source.url?.takeIf { it.isNotBlank() } ?: return@forEachIndexed
+                if (options.none { it.playlistUrl == url }) {
+                    val label = source.type?.takeIf { it.isNotBlank() }
+                        ?.let { "Lista: $it" } ?: "Lista alternativa ${index + 1}"
+                    options.add(PlaylistOption(label, url))
+                }
+            }
+
+        if (options.isEmpty()) error("Nenhuma lista encontrada para este MAC.")
+        options
+    }
+
+    /** Troca a sessão ativa pra usar explicitamente a playlist escolhida
+     * (em vez de sempre a "principal" que o checkDevice devolve) --
+     * usado pelo seletor "trocar de lista" em Ajustes. */
+    suspend fun switchToPlaylist(rawMac: String, playlistUrl: String): Result<Session> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val deviceCheck = runCatching { api.checkDevice(mac) }.getOrNull()?.body()
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate)
+    }
+
     suspend fun verifyAccess(rawMac: String): Result<DeviceCheckResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val response = api.checkDevice(mac)

@@ -9,6 +9,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.meuapp.iptvplayer.R
+import com.meuapp.iptvplayer.data.api.RenciaRepository
 import com.meuapp.iptvplayer.data.api.XtreamRepository
 import com.meuapp.iptvplayer.databinding.ActivitySeriesBinding
 import com.meuapp.iptvplayer.ui.common.CategorySidebarAdapter
@@ -21,6 +22,8 @@ class SeriesActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySeriesBinding
     private val repository = XtreamRepository()
+    private val renciaRepository = RenciaRepository()
+    private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: SeriesAdapter
     private var selectedPosterUrl: String? = null
@@ -74,7 +77,11 @@ class SeriesActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
         lifecycleScope.launch {
-            repository.getSeriesCategories(session)
+            val activeSession = renciaRepository.refreshSessionIfChanged(session)
+                .getOrNull()
+                ?.also { SessionStore.saveSession(this@SeriesActivity, it) }
+                ?: session
+            repository.getSeriesCategories(activeSession)
                 .onSuccess { sidebarAdapter.submitList(it) }
                 .onFailure {
                     binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"

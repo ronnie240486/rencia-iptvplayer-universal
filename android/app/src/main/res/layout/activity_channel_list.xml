@@ -22,6 +22,15 @@
             android:paddingTop="8dp"
             android:paddingBottom="8dp" />
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvSubcategories"
+            android:layout_width="150dp"
+            android:layout_height="match_parent"
+            android:background="@color/sidebar_bg"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -33,16 +42,20 @@
                 layout="@layout/toolbar_content" />
 
             <FrameLayout
+                android:id="@+id/miniPlayerPanel"
                 android:layout_width="match_parent"
                 android:layout_height="230dp"
                 android:layout_marginHorizontal="12dp"
-                android:background="@drawable/bg_tile">
+                android:background="@drawable/bg_tile"
+                android:clipToPadding="false">
 
                 <androidx.media3.ui.PlayerView
                     android:id="@+id/miniPlayer"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:keepScreenOn="true"
+                    app:resize_mode="fit"
+                    app:show_buffering="when_playing"
                     app:use_controller="true" />
 
                 <TextView
@@ -59,57 +72,152 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
+                <TextView
+                    android:id="@+id/tvMiniPlayerState"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|start"
+                    android:layout_margin="12dp"
+                    android:background="#AA000000"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="6dp"
+                    android:text="Pronto"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btnMiniPlayerMute"
+                    android:layout_width="52dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="bottom|center_horizontal"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/bg_tile_highlight"
+                    android:gravity="center"
+                    android:paddingHorizontal="8dp"
+                    android:text="SOM"
+                    android:textColor="@color/white"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnRetryMiniPlayer"
+                    android:layout_width="150dp"
+                    android:layout_height="42dp"
+                    android:layout_gravity="bottom|center_horizontal"
+                    android:layout_marginBottom="10dp"
+                    android:text="RECARREGAR"
+                    android:textAllCaps="false"
+                    android:visibility="gone" />
+
                 <Button
                     android:id="@+id/btnOpenFullPlayer"
                     android:layout_width="160dp"
                     android:layout_height="42dp"
                     android:layout_gravity="bottom|end"
                     android:layout_margin="10dp"
-                    android:text="TELA CHEIA" />
+                    android:text="TELA CHEIA"
+                    android:textAllCaps="false" />
             </FrameLayout>
 
             <LinearLayout
+                android:id="@+id/contentTabs"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginHorizontal="12dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_tile"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="8dp">
+
+                <TextView
+                    android:id="@+id/tabChannels"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="CANAIS"
+                    android:textColor="@color/white"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tabEpg"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="EPG"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/channelsPanel"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvChannelsHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:gravity="center_vertical"
+                        android:paddingHorizontal="16dp"
+                        android:text="CANAIS — selecione uma categoria"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvChannels"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipToPadding="false"
+                        android:paddingHorizontal="12dp"
+                        android:paddingBottom="8dp" />
+                </LinearLayout>
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/epgPanel"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:orientation="vertical">
+                android:visibility="gone">
 
-                <TextView
-                    android:id="@+id/tvEpgHeader"
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="16dp"
-                    android:text="EPG — selecione um canal"
-                    android:textColor="@color/white"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:layout_height="match_parent"
+                    android:orientation="vertical">
 
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvEpg"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:clipToPadding="false"
-                    android:paddingBottom="4dp" />
+                    <TextView
+                        android:id="@+id/tvEpgHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:gravity="center_vertical"
+                        android:paddingHorizontal="16dp"
+                        android:text="EPG — selecione um canal"
+                        android:textColor="@color/white"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvChannelsHeader"
-                    android:layout_width="match_parent"
-                    android:layout_height="30dp"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="16dp"
-                    android:text="CANAIS — toque para selecionar · pressione para tela cheia"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvChannels"
-                    android:layout_width="match_parent"
-                    android:layout_height="150dp"
-                    android:clipToPadding="false"
-                    android:paddingHorizontal="12dp" />
-            </LinearLayout>
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/rvEpg"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:clipToPadding="false"
+                        android:paddingBottom="8dp" />
+                </LinearLayout>
+            </FrameLayout>
         </LinearLayout>
     </LinearLayout>
 

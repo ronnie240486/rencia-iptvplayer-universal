@@ -7,7 +7,7 @@ object ReminderStore {
     private const val PREFS = "supremus_epg_reminders"
 
     fun key(streamId: Int, listing: EpgListing): String =
-        "${streamId}_${listing.id}_${listing.start}"
+        "${streamId}_${listing.id}_${listing.startValue()}"
 
     fun isScheduled(context: Context, streamId: Int, listing: EpgListing): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

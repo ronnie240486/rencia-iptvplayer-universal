@@ -22,12 +22,12 @@ class CategorySidebarAdapter(
     private val items = mutableListOf<Category>()
     private var selectedIndex = 0
 
-    fun submitList(newItems: List<Category>, preSelectIndex: Int = 0) {
+    fun submitList(newItems: List<Category>, preSelectIndex: Int = 0, autoSelect: Boolean = true) {
         items.clear()
         items.addAll(newItems)
         selectedIndex = preSelectIndex.coerceIn(0, (newItems.size - 1).coerceAtLeast(0))
         notifyDataSetChanged()
-        if (newItems.isNotEmpty()) onSelect(newItems[selectedIndex])
+        if (autoSelect && newItems.isNotEmpty()) onSelect(newItems[selectedIndex])
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {

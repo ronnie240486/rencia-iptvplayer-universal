@@ -25,16 +25,16 @@ object ReminderScheduler {
         streamUrl: String,
         listing: EpgListing
     ): Boolean {
-        val triggerAt = EpgTime.millis(listing.start) ?: return false
+        val triggerAt = EpgTime.millis(listing.startValue()) ?: return false
         if (triggerAt <= System.currentTimeMillis()) return false
 
         val intent = Intent(context, EpgReminderReceiver::class.java).apply {
             putExtra(EXTRA_STREAM_ID, streamId)
             putExtra(EXTRA_CHANNEL_NAME, channelName)
             putExtra(EXTRA_STREAM_URL, streamUrl)
-            putExtra(EXTRA_PROGRAM_TITLE, listing.titleBase64)
-            putExtra(EXTRA_PROGRAM_START, listing.start)
-            putExtra(EXTRA_PROGRAM_END, listing.end)
+            putExtra(EXTRA_PROGRAM_TITLE, listing.titleValue())
+            putExtra(EXTRA_PROGRAM_START, listing.startValue())
+            putExtra(EXTRA_PROGRAM_END, listing.endValue())
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -70,5 +70,5 @@ object ReminderScheduler {
     }
 
     private fun requestCode(streamId: Int, listing: EpgListing): Int =
-        String.format(Locale.ROOT, "%d_%s_%s", streamId, listing.id, listing.start).hashCode()
+        String.format(Locale.ROOT, "%d_%s_%s", streamId, listing.id, listing.startValue()).hashCode()
 }

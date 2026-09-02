@@ -40,9 +40,11 @@ class EpgAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
         val scheduled = streamId != -1 && ReminderStore.isScheduled(holder.itemView.context, streamId, item)
-        holder.binding.tvTime.text = "${EpgTime.format(item.start)} - ${EpgTime.format(item.end)}"
-        holder.binding.tvProgramTitle.text = decodeBase64(item.titleBase64)
-        holder.binding.tvProgramDescription.text = decodeBase64(item.descriptionBase64)
+        holder.binding.tvChannelName.visibility = android.view.View.GONE
+        holder.binding.tvProgramState.visibility = android.view.View.GONE
+        holder.binding.tvTime.text = "${EpgTime.format(item.startValue())} - ${EpgTime.format(item.endValue())}"
+        holder.binding.tvProgramTitle.text = decodeBase64(item.titleValue())
+        holder.binding.tvProgramDescription.text = decodeBase64(item.descriptionValue())
         holder.binding.btnReminder.alpha = if (scheduled) 1f else 0.45f
         holder.binding.btnReminder.contentDescription = if (scheduled) "Cancelar lembrete" else "Ativar lembrete"
         holder.binding.btnReminder.setOnClickListener { onReminderClick(item, scheduled) }

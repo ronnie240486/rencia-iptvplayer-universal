@@ -96,7 +96,8 @@ class XtreamRepository {
         // parecendo que o provedor simplesmente não tinha categoria
         // nenhuma. Agora um erro de verdade aparece como erro de verdade.
         if (!response.isSuccessful) error("HTTP ${response.code()} ao buscar categorias")
-        response.body() ?: error("Resposta vazia do servidor ao buscar categorias")
+        val categories = response.body() ?: error("Resposta vazia do servidor ao buscar categorias")
+        categories.sortedBy { it.categoryName.lowercase() }
     }
 
     suspend fun getLiveStreams(session: Session, categoryId: String?): Result<List<LiveStream>> = runCatching {

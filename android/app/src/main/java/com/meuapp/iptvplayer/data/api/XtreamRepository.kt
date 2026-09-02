@@ -135,6 +135,51 @@ class XtreamRepository {
     // (getSeriesInfo só recebe o ID, não a categoria).
     private val m3uSeriesLookup = mutableMapOf<Int, Pair<String, String>>() // seriesId -> (categoria, nome)
 
+    /** Baixa a playlist M3U completa reportando o progresso de verdade
+     * (bytes já baixados / total), usado na tela de ativação por MAC pra
+     * mostrar uma barra de progresso com porcentagem em vez de um
+     * "carregando" indefinido -- e já deixa em cache, então as telas
+     * seguintes (Canais/Filmes/Séries) abrem na hora, sem precisar baixar
+     * de novo. */
+    suspend fun preloadPlaylistWithProgress(
+        session: Session,
+        onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
+    ): Result<Unit> = kotlin.runCatching {
+        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@runCatching
+        m3uCache[playlistUrl]?.let { return@runCatching }
+
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val request = okhttp3.Request.Builder().url(playlistUrl).build()
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                response.close()
+                error("O servidor respondeu com erro HTTP ${response.code} ao baixar a lista.")
+            }
+            val body = response.body ?: run {
+                response.close()
+                error("O servidor respondeu vazio ao baixar a lista.")
+            }
+            val totalBytes = body.contentLength().coerceAtLeast(0)
+            val source = body.source()
+            val buffer = okio.Buffer()
+            var bytesRead = 0L
+            val chunkSize = 32 * 1024L
+            while (true) {
+                val read = source.read(buffer, chunkSize)
+                if (read == -1L) break
+                bytesRead += read
+                onProgress(bytesRead, totalBytes)
+            }
+            val text = buffer.readString(Charsets.UTF_8)
+            response.close()
+
+            val parsed = M3uParser.parse(text)
+            if (parsed.isNotEmpty()) {
+                m3uCache[playlistUrl] = parsed
+            }
+        }
+    }
+
     private suspend fun fetchM3uChannels(session: Session): List<M3uParser.ParsedChannel> {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
             ?: error("Esta sessão não tem uma playlist M3U para usar.")

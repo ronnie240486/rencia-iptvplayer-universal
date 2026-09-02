@@ -1,79 +1,174 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0B0B0B"
-    android:fillViewport="true">
-    <LinearLayout
+    android:background="#07080A">
+
+    <ImageView
+        android:id="@+id/ivBackgroundCrest"
+        android:layout_width="520dp"
+        android:layout_height="520dp"
+        android:layout_gravity="center"
+        android:alpha="0.06"
+        android:contentDescription="@null"
+        android:scaleType="centerInside"
+        android:src="@drawable/home_crest_recreated" />
+
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:padding="24dp">
-        <ImageView
-            android:id="@+id/ivLogo"
-            android:layout_width="220dp"
-            android:layout_height="220dp"
-            android:contentDescription="SUPREME"
-            android:scaleType="centerInside"
-            android:src="@drawable/home_crest_recreated" />
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="@string/app_name"
-            android:textColor="#F4C95D"
-            android:textSize="25sp"
-            android:textStyle="bold" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:text="Copie o MAC abaixo, autorize no painel e toque em Ativar aparelho"
-            android:textColor="@color/text_secondary"
-            android:textSize="15sp" />
-        <EditText
-            android:id="@+id/etMac"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:background="@drawable/home_focus_border"
-            android:clickable="true"
-            android:contentDescription="MAC do aparelho. Toque para copiar"
-            android:focusable="true"
-            android:gravity="center"
-            android:hint="MAC do aparelho (AA:BB:CC:DD:EE:FF)"
-            android:inputType="textCapCharacters"
-            android:letterSpacing="0.08"
-            android:maxLength="17"
-            android:maxLines="1"
-            android:padding="14dp"
-            android:textColor="@color/white"
-            android:textColorHint="@color/text_secondary"
-            android:textSize="19sp"
-            android:textStyle="bold" />
-        <Button
-            android:id="@+id/btnLogin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:text="Ativar aparelho"
-            android:textAllCaps="false" />
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:visibility="gone" />
-        <TextView
-            android:id="@+id/tvError"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="center"
-            android:textColor="#FFCF6679"
-            android:visibility="gone" />
-    </LinearLayout>
-</ScrollView>
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="28dp"
+            android:paddingVertical="36dp">
+
+            <ImageView
+                android:id="@+id/ivLogo"
+                android:layout_width="150dp"
+                android:layout_height="150dp"
+                android:contentDescription="SUPREME"
+                android:scaleType="centerInside"
+                android:src="@drawable/home_crest_recreated" />
+
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:letterSpacing="0.04"
+                android:text="@string/app_name"
+                android:textColor="#F4C95D"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <!-- ===== Bloco 1: ativação por MAC ===== -->
+            <LinearLayout
+                android:id="@+id/macSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:background="@drawable/bg_tile"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="Copie o MAC abaixo, autorize no painel"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp" />
+
+                <EditText
+                    android:id="@+id/etMac"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:background="@drawable/home_focus_border"
+                    android:clickable="true"
+                    android:contentDescription="MAC do aparelho. Toque para copiar"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:hint="AA:BB:CC:DD:EE:FF"
+                    android:inputType="textCapCharacters"
+                    android:letterSpacing="0.1"
+                    android:maxLength="17"
+                    android:maxLines="1"
+                    android:padding="14dp"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/text_secondary"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnLogin"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:text="Ativar aparelho"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:id="@+id/tvError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center"
+                    android:textColor="#FFCF6679"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- ===== Bloco 2: carregando a lista (some depois de ativar) ===== -->
+            <LinearLayout
+                android:id="@+id/loadingSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:background="@drawable/bg_tile"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvLoadingPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0%"
+                    android:textColor="@color/accent"
+                    android:textSize="44sp"
+                    android:textStyle="bold" />
+
+                <ProgressBar
+                    android:id="@+id/progressLoading"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:layout_marginTop="14dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/accent" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvLoadingStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Baixando lista completa…"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/tvLoadingTimer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="00:00"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/progressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

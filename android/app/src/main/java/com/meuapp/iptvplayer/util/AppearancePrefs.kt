@@ -9,7 +9,7 @@ object AppearancePrefs {
     private const val KEY_BAR_COLOR = "category_bar_color"
     private const val KEY_BACKDROP_ENABLED = "backdrop_poster_enabled"
 
-    const val DEFAULT_COLOR = "#3DDC97"
+    const val DEFAULT_COLOR = "#8FA45A"
 
     fun isCategoryBarEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_BAR_ENABLED, true)

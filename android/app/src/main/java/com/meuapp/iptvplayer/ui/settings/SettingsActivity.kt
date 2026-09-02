@@ -30,14 +30,14 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private val renciaRepository = RenciaRepository()
     private val colorOptions = listOf(
-        "Verde-sinal" to "#3DDC97",
-        "Branco" to "#FFFFFF",
-        "Vermelho" to "#FF5A5F",
-        "Azul" to "#4C8DFF",
-        "Laranja" to "#FFA33D",
-        "Roxo" to "#A56BFF",
-        "Amarelo" to "#FFD23D",
-        "Rosa" to "#FF6FB5"
+        "Verde Supreme" to AppearancePrefs.DEFAULT_COLOR,
+        "Verde esmeralda" to "#3F8F63",
+        "Oliva" to "#6F7F3E",
+        "Dourado" to "#C6A85B",
+        "Prata" to "#B9C0B4",
+        "Verde profundo" to "#31543C",
+        "Bronze" to "#8B7040",
+        "Cinza grafite" to "#68706A"
     )
     private var selectedColorHex: String = AppearancePrefs.DEFAULT_COLOR
     private val colorSwatchViews = mutableListOf<Pair<String, ImageView>>()
@@ -49,7 +49,7 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.backdropView.setPoster(null, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.toolbar.tvTitle.text = getString(R.string.settings_title)
-        binding.toolbar.tvSubtitle.text = "Configurações do SUPREMUS"
+        binding.toolbar.tvSubtitle.text = "Configurações do SUPREME"
         binding.toolbar.btnBack.setOnClickListener { finish() }
         binding.toolbar.btnSearch.visibility = View.GONE
 
@@ -100,8 +100,8 @@ class SettingsActivity : AppCompatActivity() {
         configureRow(R.id.rowDiagnostics, "✓", "Diagnóstico", "Testar conexão e autorização do painel") {
             runDiagnostic(mac)
         }
-        configureRow(R.id.rowVersion, "i", "Versão", "SUPREMUS v$version") {
-            showInfo("SUPREMUS", "Versão $version\nPlayer Media3 ativo\nRádio Browser disponível")
+        configureRow(R.id.rowVersion, "i", "Versão", "SUPREME v$version") {
+            showInfo("SUPREME", "Versão $version\nPlayer Media3 ativo\nRádio Browser disponível")
         }
         configureRow(R.id.rowLogout, "↪", "Sair / Trocar dispositivo", "Apagar a sessão deste aparelho") {
             AlertDialog.Builder(this)

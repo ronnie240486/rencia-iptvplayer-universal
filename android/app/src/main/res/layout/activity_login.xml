@@ -16,7 +16,7 @@
             android:layout_height="220dp"
             android:contentDescription="Rencia"
             android:scaleType="centerInside"
-            android:src="@drawable/supremus_logo" />
+            android:src="@drawable/home_crest_recreated" />
         <TextView
             android:id="@+id/tvTitle"
             android:layout_width="wrap_content"

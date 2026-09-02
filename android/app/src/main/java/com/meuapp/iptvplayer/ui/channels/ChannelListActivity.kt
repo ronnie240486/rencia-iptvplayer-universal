@@ -22,6 +22,7 @@ import com.meuapp.iptvplayer.ui.common.CategorySidebarAdapter
 import com.meuapp.iptvplayer.ui.epg.EpgReminderActivity
 import com.meuapp.iptvplayer.ui.epg.GuideAdapter
 import com.meuapp.iptvplayer.ui.epg.GuideProgramRow
+import com.meuapp.iptvplayer.ui.epg.MiniGuideAdapter
 import com.meuapp.iptvplayer.ui.login.LoginActivity
 import com.meuapp.iptvplayer.ui.player.PlayerActivity
 import com.meuapp.iptvplayer.util.AppearancePrefs

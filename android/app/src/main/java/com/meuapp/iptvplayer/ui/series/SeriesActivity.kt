@@ -49,6 +49,7 @@ class SeriesActivity : AppCompatActivity() {
         ) { category -> loadSeries(category.categoryId, category.categoryName) }
 
         gridAdapter = SeriesAdapter(
+            lifecycleScope = lifecycleScope,
             onClick = { series ->
                 startActivity(Intent(this, SeriesDetailActivity::class.java).apply {
                     putExtra(SeriesDetailActivity.EXTRA_SERIES_ID, series.seriesId)

@@ -31,6 +31,7 @@ class SeriesDetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySeriesDetailBinding
     private val repository = XtreamRepository()
+    private val tmdbRepository = com.meuapp.iptvplayer.data.api.TmdbRepository()
     private lateinit var episodeAdapter: EpisodeAdapter
     private var detail: SeriesInfoResponse? = null
     private var seasons = emptyList<SeriesSeason>()
@@ -55,6 +56,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.detailToolbar.btnBack.setOnClickListener { finish() }
         binding.backdropView.setPoster(cover, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.ivCover.load(cover) { crossfade(true) }
+        loadTmdbCover(name)
 
         episodeAdapter = EpisodeAdapter { episode -> openEpisode(session, episode) }
         binding.rvEpisodes.layoutManager = LinearLayoutManager(this)
@@ -62,6 +64,19 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.spinnerSeason.isEnabled = false
 
         loadDetails(seriesId)
+    }
+
+    /** Busca o pôster oficial no TMDB pra substituir a capa genérica que
+     * costuma vir do provedor -- mesmo tratamento dado aos cards da lista
+     * de séries. */
+    private fun loadTmdbCover(name: String) {
+        if (name.isBlank()) return
+        lifecycleScope.launch {
+            tmdbRepository.findSeriesPosterUrl(name)?.let { posterUrl ->
+                binding.ivCover.load(posterUrl) { crossfade(true) }
+                binding.backdropView.setPoster(posterUrl, AppearancePrefs.isBackdropPosterEnabled(this@SeriesDetailActivity))
+            }
+        }
     }
 
     private fun loadDetails(seriesId: Int) {

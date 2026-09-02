@@ -97,9 +97,13 @@ class ChannelListActivity : AppCompatActivity() {
             repository.getLiveCategories(session)
                 .onSuccess { categories ->
                     sidebarAdapter.submitList(categories)
-                    categories.firstOrNull()?.let { loadChannels(it.categoryId, it.categoryName) }
+                    if (categories.isEmpty()) {
+                        showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
+                    } else {
+                        categories.firstOrNull()?.let { loadChannels(it.categoryId, it.categoryName) }
+                    }
                 }
-                .onFailure { showError("Não foi possível carregar as categorias") }
+                .onFailure { showError("Não foi possível carregar as categorias: ${it.message}") }
             setLoading(false)
         }
     }

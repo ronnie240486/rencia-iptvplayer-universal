@@ -1,5 +1,8 @@
 package com.meuapp.iptvplayer.data.api
 
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonDeserializer
 import com.meuapp.iptvplayer.data.model.AuthResponse
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -38,10 +41,34 @@ class XtreamRepository {
         })
         .build()
 
+    // Esse player é "universal" (qualquer provedor Xtream Codes), mas cada
+    // painel implementa a API de um jeito ligeiramente diferente -- em
+    // especial, campos como category_id/stream_id/exp_date às vezes vêm
+    // como texto ("5") e às vezes como número puro (5), dependendo do
+    // software do painel. Com Gson padrão, se o app espera String e o
+    // painel manda número (ou vice-versa), a conversão da lista INTEIRA
+    // falha silenciosamente -- é a causa mais provável de "categoria de
+    // canal não aparece" em algum provedor específico. Esses adapters
+    // aceitam qualquer um dos dois formatos.
+    private fun buildGson(): Gson = GsonBuilder()
+        .registerTypeAdapter(String::class.java, JsonDeserializer { json, _, _ ->
+            if (json == null || json.isJsonNull) null
+            else runCatching { json.asJsonPrimitive.asString }.getOrNull()
+        })
+        .registerTypeAdapter(Int::class.javaPrimitiveType, JsonDeserializer { json, _, _ ->
+            if (json == null || json.isJsonNull) 0
+            else runCatching { json.asJsonPrimitive.asString.trim().toDoubleOrNull()?.toInt() }.getOrNull() ?: 0
+        })
+        .registerTypeAdapter(Int::class.javaObjectType, JsonDeserializer { json, _, _ ->
+            if (json == null || json.isJsonNull) null
+            else runCatching { json.asJsonPrimitive.asString.trim().toDoubleOrNull()?.toInt() }.getOrNull()
+        })
+        .create()
+
     private val api: XtreamApiService = Retrofit.Builder()
         .baseUrl("http://localhost/") // sobrescrito por @Url em cada chamada
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
+        .addConverterFactory(GsonConverterFactory.create(buildGson()))
         .build()
         .create(XtreamApiService::class.java)
 
@@ -63,7 +90,13 @@ class XtreamRepository {
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_live_categories"
         val response = api.getLiveCategories(url)
-        response.body() ?: emptyList()
+        // Antes, se o servidor respondesse com erro HTTP (ou corpo nulo por
+        // qualquer motivo), isso virava silenciosamente "sucesso com 0
+        // categorias" -- a tela ficava vazia sem nenhum aviso de erro,
+        // parecendo que o provedor simplesmente não tinha categoria
+        // nenhuma. Agora um erro de verdade aparece como erro de verdade.
+        if (!response.isSuccessful) error("HTTP ${response.code()} ao buscar categorias")
+        response.body() ?: error("Resposta vazia do servidor ao buscar categorias")
     }
 
     suspend fun getLiveStreams(session: Session, categoryId: String?): Result<List<LiveStream>> = runCatching {

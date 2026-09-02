@@ -21,8 +21,19 @@ object M3uParser {
         val groupTitle: String,
         val name: String,
         val logoUrl: String?,
-        val streamUrl: String
+        val streamUrl: String,
+        val tvgId: String? = null
     )
+
+    /** Algumas playlists M3U declaram, na primeira linha (#EXTM3U), a URL
+     * de um guia de programação completo em formato XMLTV
+     * (url-tvg="..." ou x-tvg-url="...") -- é assim que a maioria dos apps
+     * de IPTV mostra "o que está passando agora" mesmo sem a API Xtream. */
+    fun extractEpgUrl(content: String): String? {
+        val firstLine = content.removePrefix("\uFEFF").lineSequence().firstOrNull { it.isNotBlank() } ?: return null
+        if (!firstLine.startsWith("#EXTM3U", ignoreCase = true)) return null
+        return extractAttribute(firstLine, "url-tvg") ?: extractAttribute(firstLine, "x-tvg-url")
+    }
 
     fun parse(content: String): List<ParsedChannel> {
         // Alguns servidores mandam um BOM (marca de ordem de bytes) no
@@ -38,6 +49,7 @@ object M3uParser {
         var pendingGroup: String? = null
         var pendingName: String? = null
         var pendingLogo: String? = null
+        var pendingTvgId: String? = null
         var anonymousCounter = 0
 
         for (line in lines) {
@@ -45,6 +57,7 @@ object M3uParser {
                 line.startsWith("#EXTINF", ignoreCase = true) -> {
                     pendingGroup = extractAttribute(line, "group-title") ?: "Geral"
                     pendingLogo = extractAttribute(line, "tvg-logo")
+                    pendingTvgId = extractAttribute(line, "tvg-id") ?: extractAttribute(line, "tvg-name")
                     // O nome do canal vem depois da última vírgula do #EXTINF.
                     pendingName = line.substringAfterLast(',').trim().ifBlank { null }
                 }
@@ -63,12 +76,14 @@ object M3uParser {
                             groupTitle = pendingGroup ?: "Geral",
                             name = pendingName ?: "Canal $anonymousCounter",
                             logoUrl = pendingLogo,
-                            streamUrl = line
+                            streamUrl = line,
+                            tvgId = pendingTvgId
                         )
                     )
                     pendingGroup = null
                     pendingName = null
                     pendingLogo = null
+                    pendingTvgId = null
                 }
                 else -> Unit // linha desconhecida (não é #tag nem URL) -- ignora
             }
@@ -95,7 +110,7 @@ object M3uParser {
                     streamId = 0,
                     streamIcon = channel.logoUrl,
                     categoryId = categoryName,
-                    epgChannelId = null,
+                    epgChannelId = channel.tvgId,
                     directStreamUrl = channel.streamUrl
                 )
             }

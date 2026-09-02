@@ -12,6 +12,16 @@ class RenciaRepository {
     companion object {
         const val BASE_URL = "https://renciaapp.manus.space/"
         const val APP_ID = "rencia"
+
+        // Cada tela (Canais, Filmes, Séries) confere se a lista mudou no
+        // painel toda vez que abre -- isso é bom pra detectar troca de
+        // lista rápido, mas se o usuário for de Canais pra Filmes pra
+        // Séries em sequência, isso significa 3 chamadas de rede seguidas
+        // só pra confirmar "não mudou nada", deixando tudo mais lento sem
+        // necessidade. Só faz essa checagem de verdade se already fez uma
+        // esse MAC há mais de alguns minutos.
+        private const val REFRESH_THROTTLE_MS = 3 * 60_000L
+        private val lastRefreshCheckAt = mutableMapOf<String, Long>()
     }
 
     private val api: RenciaApiService = Retrofit.Builder()
@@ -102,6 +112,11 @@ class RenciaRepository {
      * sucesso) quando não muda nada -- não precisa salvar de novo. */
     suspend fun refreshSessionIfChanged(currentSession: Session): Result<Session?> = runCatching {
         val mac = normalizeMac(currentSession.mac) ?: return@runCatching null
+        val now = System.currentTimeMillis()
+        val lastChecked = lastRefreshCheckAt[mac] ?: 0L
+        if (now - lastChecked < REFRESH_THROTTLE_MS) return@runCatching null
+        lastRefreshCheckAt[mac] = now
+
         val deviceResponse = api.checkDevice(mac)
         if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
         val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")

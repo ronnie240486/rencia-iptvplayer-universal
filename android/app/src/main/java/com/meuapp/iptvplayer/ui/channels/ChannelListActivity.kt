@@ -252,10 +252,35 @@ class ChannelListActivity : AppCompatActivity() {
 
     /** Faixa "agora / depois / depois..." sempre visível embaixo do mini
      * player -- atualiza sozinha assim que troca de canal, sem precisar
-     * clicar em EPG nem em nada. */
+     * clicar em EPG nem em nada. Canais vindos da API Xtream usam
+     * get_short_epg; canais vindos de uma playlist M3U (sem stream_id de
+     * verdade) usam o guia XMLTV referenciado na própria playlist. */
     private fun loadMiniGuide(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
         lifecycleScope.launch {
+            if (channel.directStreamUrl != null) {
+                repository.getEpgFromPlaylist(session, channel.epgChannelId)
+                    .onSuccess { programmes ->
+                        val listings = programmes.map { p ->
+                            com.meuapp.iptvplayer.data.model.EpgListing(
+                                id = "",
+                                titleBase64 = p.title,
+                                descriptionBase64 = null,
+                                start = null,
+                                end = null,
+                                startTimestamp = p.startMillis / 1000,
+                                stopTimestamp = p.stopMillis / 1000
+                            )
+                        }
+                        miniGuideAdapter.submitList(listings)
+                        binding.rvMiniGuide.visibility = if (listings.isEmpty()) View.GONE else View.VISIBLE
+                    }
+                    .onFailure {
+                        miniGuideAdapter.submitList(emptyList())
+                        binding.rvMiniGuide.visibility = View.GONE
+                    }
+                return@launch
+            }
             repository.getShortEpg(session, channel.streamId)
                 .onSuccess { response ->
                     val listings = response.listings.orEmpty()

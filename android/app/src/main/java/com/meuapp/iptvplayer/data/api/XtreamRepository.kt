@@ -44,6 +44,11 @@ class XtreamRepository {
     companion object {
         private val m3uCache = mutableMapOf<String, List<M3uParser.ParsedChannel>>()
         private val m3uSeriesLookup = mutableMapOf<Int, Pair<String, String>>() // seriesId -> (categoria, nome)
+        // URL do guia XMLTV encontrada dentro da própria playlist M3U
+        // (tag url-tvg/x-tvg-url) -- null explícito significa "já procurou
+        // e não tem" (evita ficar checando de novo sem necessidade).
+        private val epgUrlCache = mutableMapOf<String, String?>() // playlistUrl -> epgUrl
+        private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -176,6 +181,7 @@ class XtreamRepository {
             val text = buffer.readString(Charsets.UTF_8)
             response.close()
 
+            epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(text)
             val parsed = M3uParser.parse(text)
             if (parsed.isNotEmpty()) {
                 m3uCache[playlistUrl] = parsed
@@ -188,12 +194,45 @@ class XtreamRepository {
             ?: error("Esta sessão não tem uma playlist M3U para usar.")
         m3uCache[playlistUrl]?.let { return it }
         val body = fetchBody(playlistUrl)
+        epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(body)
         val parsed = M3uParser.parse(body)
         if (parsed.isEmpty()) {
             error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
         }
         m3uCache[playlistUrl] = parsed
         return parsed
+    }
+
+    /** Busca e interpreta o guia XMLTV referenciado na própria playlist M3U
+     * (tag url-tvg/x-tvg-url) -- é assim que a maioria dos apps de IPTV
+     * mostra a programação real ("Jornal Nacional agora, novela depois")
+     * mesmo em painéis sem API Xtream. Baixa e processa só uma vez por
+     * sessão (fica em cache), e só guarda os canais que realmente existem
+     * na playlist, pra não gastar memória com um guia inteiro à toa. */
+    private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> {
+        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return emptyMap()
+        val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return emptyMap()
+        val epgUrl = epgUrlCache[playlistUrl] ?: return emptyMap()
+        xmlTvCache[epgUrl]?.let { return it }
+        val tvgIds = channels.mapNotNull { it.tvgId }.toSet()
+        if (tvgIds.isEmpty()) return emptyMap()
+        val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: return emptyMap()
+        val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: emptyMap()
+        xmlTvCache[epgUrl] = parsed
+        return parsed
+    }
+
+    /** Programação (agora + próximos) de UM canal específico, lida do guia
+     * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id
+     * de verdade pra usar o get_short_epg da API Xtream). */
+    suspend fun getEpgFromPlaylist(session: Session, tvgId: String?): Result<List<XmlTvProgramme>> = runCatching {
+        if (tvgId.isNullOrBlank()) return@runCatching emptyList()
+        val guide = fetchXmlTvGuide(session)
+        val now = System.currentTimeMillis()
+        guide[tvgId].orEmpty()
+            .filter { it.stopMillis >= now }
+            .sortedBy { it.startMillis }
+            .take(6)
     }
 
     suspend fun login(session: Session): Result<AuthResponse> = runCatching {

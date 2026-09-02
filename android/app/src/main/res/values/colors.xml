@@ -10,4 +10,5 @@
     <color name="border">#1AFFFFFF</color>
     <color name="text_secondary">#B3FFFFFF</color>
     <color name="text_tertiary">#66FFFFFF</color>
+    <color name="divider">#668FA45A</color>
 </resources>

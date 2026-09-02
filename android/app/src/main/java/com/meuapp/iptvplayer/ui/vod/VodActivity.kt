@@ -3,6 +3,7 @@ package com.meuapp.iptvplayer.ui.vod
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -22,8 +23,9 @@ class VodActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityVodBinding
     private val repository = XtreamRepository()
-    private lateinit var sidebarAdapter: CategorySidebarAdapter
+    private lateinit var categoryAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: VodAdapter
+    private var selectedPosterUrl: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,17 +41,27 @@ class VodActivity : AppCompatActivity() {
 
         binding.backdropView.setPoster(null, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.toolbar.tvTitle.text = getString(R.string.tile_vod)
+        binding.toolbar.tvSubtitle.text = "Escolha uma categoria de filmes"
         binding.toolbar.btnBack.setOnClickListener { finish() }
 
-        sidebarAdapter = CategorySidebarAdapter(
+        categoryAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
             barColorHex = AppearancePrefs.getCategoryBarColor(this)
         ) { category -> loadMovies(category.categoryId, category.categoryName) }
 
-        gridAdapter = VodAdapter { movie -> openPlayer(movie) }
+        gridAdapter = VodAdapter(
+            onClick = { movie -> openPlayer(movie) },
+            onFocused = { movie ->
+                selectedPosterUrl = movie.streamIcon
+                binding.backdropView.setPoster(movie.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
+            }
+        )
 
-        binding.rvSidebar.layoutManager = LinearLayoutManager(this)
-        binding.rvSidebar.adapter = sidebarAdapter
+        // A barra de categorias de Filmes é HORIZONTAL, no topo (diferente
+        // da barra vertical lateral usada em Canais).
+        binding.rvCategories.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        binding.rvCategories.adapter = categoryAdapter
+        binding.rvCategories.visibility = if (AppearancePrefs.isCategoryBarEnabled(this)) View.VISIBLE else View.GONE
 
         binding.rvGrid.layoutManager = GridLayoutManager(this, 3)
         binding.rvGrid.adapter = gridAdapter
@@ -61,23 +73,36 @@ class VodActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
         lifecycleScope.launch {
-            val result = repository.getVodCategories(session)
+            repository.getVodCategories(session)
+                .onSuccess { categories -> categoryAdapter.submitList(categories) }
+                .onFailure {
+                    binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
+                    showError("Não foi possível carregar as categorias de filmes")
+                }
             setLoading(false)
-            result.onSuccess { sidebarAdapter.submitList(it) }
         }
     }
 
     private fun loadMovies(categoryId: String, categoryName: String) {
         val session = SessionStore.getSavedSession(this) ?: return
-        binding.toolbar.tvSubtitle.text = categoryName
+        binding.toolbar.tvSubtitle.text = "$categoryName · carregando filmes…"
         setLoading(true)
         lifecycleScope.launch {
-            val result = repository.getVodStreams(session, categoryId)
+            repository.getVodStreams(session, categoryId)
+                .onSuccess { movies ->
+                    gridAdapter.submitList(movies)
+                    movies.firstOrNull()?.let { movie ->
+                        selectedPosterUrl = movie.streamIcon
+                        binding.backdropView.setPoster(movie.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this@VodActivity))
+                    }
+                    binding.toolbar.tvSubtitle.text = "$categoryName · ${movies.size} filmes"
+                }
+                .onFailure {
+                    gridAdapter.submitList(emptyList())
+                    binding.toolbar.tvSubtitle.text = "$categoryName · erro ao carregar"
+                    showError("Não foi possível carregar os filmes desta categoria")
+                }
             setLoading(false)
-            result.onSuccess { movies ->
-                gridAdapter.submitList(movies)
-                binding.toolbar.tvSubtitle.text = "$categoryName · ${movies.size} filmes"
-            }
         }
     }
 
@@ -91,7 +116,21 @@ class VodActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::categoryAdapter.isInitialized) {
+            val enabled = AppearancePrefs.isCategoryBarEnabled(this)
+            binding.rvCategories.visibility = if (enabled) View.VISIBLE else View.GONE
+            categoryAdapter.updateAppearance(enabled, AppearancePrefs.getCategoryBarColor(this))
+        }
+        binding.backdropView.setPoster(selectedPosterUrl, AppearancePrefs.isBackdropPosterEnabled(this))
+    }
+
     private fun setLoading(loading: Boolean) {
         binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
+    }
+
+    private fun showError(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 }

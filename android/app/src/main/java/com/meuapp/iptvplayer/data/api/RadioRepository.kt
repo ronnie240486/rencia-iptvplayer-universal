@@ -67,7 +67,7 @@ class RadioRepository {
             runCatching {
                 val request = Request.Builder()
                     .url("$API_BASE/json/url/${java.net.URLEncoder.encode(uuid, "UTF-8")}")
-                    .header("User-Agent", "SUPREMUS/1.0")
+                    .header("User-Agent", "SUPREME/1.0")
                     .get()
                     .build()
                 client.newCall(request).execute().use { }
@@ -86,7 +86,7 @@ class RadioRepository {
             .build()
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "SUPREMUS/1.0")
+            .header("User-Agent", "SUPREME/1.0")
             .header("Accept", "application/json")
             .get()
             .build()

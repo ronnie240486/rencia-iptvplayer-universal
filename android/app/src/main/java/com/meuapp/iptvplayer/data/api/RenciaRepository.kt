@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 class RenciaRepository {
     companion object {
-        const val BASE_URL = "https://renciaapp-7uusyuwz.manus.space/"
+        const val BASE_URL = "https://renciaapp.manus.space/"
         const val APP_ID = "rencia"
     }
 

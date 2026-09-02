@@ -7,8 +7,10 @@ import coil.load
 import com.meuapp.iptvplayer.data.model.VodStream
 import com.meuapp.iptvplayer.databinding.ItemPosterBinding
 
-class VodAdapter(private val onClick: (VodStream) -> Unit) :
-    RecyclerView.Adapter<VodAdapter.ViewHolder>() {
+class VodAdapter(
+    private val onClick: (VodStream) -> Unit,
+    private val onFocused: (VodStream) -> Unit = {},
+) : RecyclerView.Adapter<VodAdapter.ViewHolder>() {
 
     private val items = mutableListOf<VodStream>()
 
@@ -28,7 +30,11 @@ class VodAdapter(private val onClick: (VodStream) -> Unit) :
         holder.binding.tvPosterTitle.text = item.name
         holder.binding.tvPosterSub.text = item.rating?.let { "★ $it" } ?: ""
         holder.binding.ivPoster.load(item.streamIcon) { crossfade(true) }
-        holder.binding.root.setOnClickListener { onClick(item) }
+        holder.binding.root.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(item) }
+        holder.binding.root.setOnClickListener {
+            onFocused(item)
+            onClick(item)
+        }
     }
 
     override fun getItemCount() = items.size

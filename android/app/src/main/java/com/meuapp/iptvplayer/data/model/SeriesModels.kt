@@ -30,7 +30,10 @@ data class SeriesEpisode(
     @SerializedName("episode_num") val episodeNumber: Int?,
     @SerializedName("title") val title: String?,
     @SerializedName("container_extension") val containerExtension: String?,
-    @SerializedName("info") val info: SeriesEpisodeInfo?
+    @SerializedName("info") val info: SeriesEpisodeInfo?,
+    // Preenchido só quando o episódio veio de uma playlist M3U (get.php)
+    // em vez da API Xtream -- ver LiveStream.directStreamUrl.
+    val directStreamUrl: String? = null
 )
 
 data class SeriesEpisodeInfo(

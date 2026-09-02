@@ -140,7 +140,7 @@ class SeriesDetailActivity : AppCompatActivity() {
     }
 
     private fun openEpisode(session: com.meuapp.iptvplayer.data.api.Session, episode: SeriesEpisode) {
-        val url = repository.buildSeriesStreamUrl(session, episode.id, episode.containerExtension)
+        val url = episode.directStreamUrl ?: repository.buildSeriesStreamUrl(session, episode.id, episode.containerExtension)
         startActivity(Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, url)
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, episode.title ?: "Episódio")

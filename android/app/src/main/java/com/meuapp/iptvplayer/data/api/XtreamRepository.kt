@@ -38,12 +38,22 @@ class XtreamRepository {
     // foi cortado no meio ("unexpected end of stream") mesmo quando o
     // servidor mandou tudo certo -- forcar HTTP/1.1 (mais tolerante a esse
     // tipo de servidor) e permitir nova tentativa em falha de conexao
-    // resolve a grande maioria desses casos.
+    // resolve a grande maioria desses casos. Alem disso, muitos paineis
+    // IPTV bloqueiam ou redirecionam requisicoes que nao mandam um
+    // User-Agent "reconhecido" (aceitam VLC, players de TV, navegador --
+    // mas rejeitam o User-Agent padrao do OkHttp) -- por isso forcamos um
+    // User-Agent de navegador comum em toda chamada.
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+        .addInterceptor { chain ->
+            val request = chain.request().newBuilder()
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+                .build()
+            chain.proceed(request)
+        }
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.NONE
         })
@@ -81,16 +91,6 @@ class XtreamRepository {
     private fun normalizeBase(serverUrl: String): String =
         serverUrl.trimEnd('/')
 
-    /** Busca a URL e devolve o corpo CRU já validado -- não deixa o Retrofit
-     * tentar converter pra Gson sozinho (isso escondia o erro real atrás de
-     * uma mensagem genérica tipo "unexpected end of stream" sempre que o
-     * corpo vinha vazio ou diferente do esperado). Com isso, qualquer
-     * problema (servidor fora do ar, usuário/senha errados, resposta que
-     * não é JSON) aparece com uma mensagem que mostra o que aconteceu de
-     * verdade. Também tenta de novo uma vez com conexão nova se a LEITURA
-     * do corpo falhar no meio (comum em painéis Xtream simples que cortam a
-     * conexão de um jeito que o OkHttp interpreta como corte no meio,
-     * mesmo quando o servidor mandou tudo certo). */
     private suspend fun fetchBody(url: String): String {
         val response = api.call(url)
         if (!response.isSuccessful) {
@@ -99,8 +99,6 @@ class XtreamRepository {
         val body = try {
             response.body()?.string()?.trim().orEmpty()
         } catch (e: Exception) {
-            // Primeira tentativa cortou no meio -- tenta de novo, com
-            // conexão nova, antes de desistir de vez.
             runCatching {
                 val retryResponse = api.call(url)
                 retryResponse.body()?.string()?.trim().orEmpty()
@@ -132,13 +130,20 @@ class XtreamRepository {
     // usuário clica).
     private val m3uCache = mutableMapOf<String, List<M3uParser.ParsedChannel>>()
 
+    // Cache das séries montadas a partir de M3U, pra "lembrar" categoria +
+    // nome da série a partir do ID fake quando o usuário abre os episódios
+    // (getSeriesInfo só recebe o ID, não a categoria).
+    private val m3uSeriesLookup = mutableMapOf<Int, Pair<String, String>>() // seriesId -> (categoria, nome)
+
     private suspend fun fetchM3uChannels(session: Session): List<M3uParser.ParsedChannel> {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
-            ?: error("Esta sessão não tem uma playlist M3U para usar como alternativa.")
+            ?: error("Esta sessão não tem uma playlist M3U para usar.")
         m3uCache[playlistUrl]?.let { return it }
         val body = fetchBody(playlistUrl)
         val parsed = M3uParser.parse(body)
-        if (parsed.isEmpty()) error("A playlist M3U não contém nenhum canal.")
+        if (parsed.isEmpty()) {
+            error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
+        }
         m3uCache[playlistUrl] = parsed
         return parsed
     }
@@ -151,42 +156,44 @@ class XtreamRepository {
         body
     }
 
+    /** Muitos paineis mais simples (principalmente os que só vendem
+     * playlist, sem revenda "de verdade") NÃO tem o player_api.php
+     * funcionando -- só o get.php (M3U) mesmo. Nesses casos, tentar a API
+     * primeiro só atrasa e ainda pode confundir o usuário com um erro que
+     * não é o problema real. Quando a sessão já tem uma playlist M3U
+     * salva, ela é tentada PRIMEIRO -- só cai pra API se a M3U falhar. */
     suspend fun getLiveCategories(session: Session): Result<List<Category>> = runCatching {
-        val apiResult = runCatching {
-            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                    "?username=${session.username}&password=${session.password}" +
-                    "&action=get_live_categories"
-            val type = object : TypeToken<List<Category>>() {}.type
-            val categories: List<Category> = parseJsonList(fetchBody(url), type)
-            categories.sortedBy { it.categoryName.lowercase() }
+        if (!session.playlistUrl.isNullOrBlank()) {
+            val m3uResult = runCatching { M3uParser.toLiveCategories(fetchM3uChannels(session)) }
+            m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
-        // Alguns paineis nao tem player_api.php de verdade, so a playlist
-        // M3U (get.php) -- se a API der erro e a sessao tiver uma playlist,
-        // tenta montar as categorias a partir dela antes de desistir.
-        apiResult.getOrElse { apiError ->
-            if (session.playlistUrl.isNullOrBlank()) throw apiError
-            M3uParser.toLiveCategories(fetchM3uChannels(session))
-        }
+        val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                "?username=${session.username}&password=${session.password}" +
+                "&action=get_live_categories"
+        val type = object : TypeToken<List<Category>>() {}.type
+        val categories: List<Category> = parseJsonList(fetchBody(url), type)
+        categories.sortedBy { it.categoryName.lowercase() }
     }
 
     suspend fun getLiveStreams(session: Session, categoryId: String?): Result<List<LiveStream>> = runCatching {
-        val apiResult = runCatching {
-            val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
-            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                    "?username=${session.username}&password=${session.password}" +
-                    "&action=get_live_streams$catParam"
-            val type = object : TypeToken<List<LiveStream>>() {}.type
-            parseJsonList<List<LiveStream>>(fetchBody(url), type)
+        if (!session.playlistUrl.isNullOrBlank()) {
+            val m3uResult = runCatching {
+                val channels = fetchM3uChannels(session)
+                val targetCategory = categoryId ?: M3uParser.toLiveCategories(channels).firstOrNull()?.categoryId
+                if (targetCategory == null) emptyList() else M3uParser.toLiveStreamsFiltered(channels, targetCategory)
+            }
+            m3uResult.getOrNull()?.let { return@runCatching it }
         }
-        apiResult.getOrElse { apiError ->
-            if (session.playlistUrl.isNullOrBlank()) throw apiError
-            val channels = fetchM3uChannels(session)
-            val targetCategory = categoryId ?: M3uParser.toLiveCategories(channels).firstOrNull()?.categoryId
-            if (targetCategory == null) emptyList() else M3uParser.toLiveStreamsFiltered(channels, targetCategory)
-        }
+        val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
+        val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                "?username=${session.username}&password=${session.password}" +
+                "&action=get_live_streams$catParam"
+        val type = object : TypeToken<List<LiveStream>>() {}.type
+        parseJsonList<List<LiveStream>>(fetchBody(url), type)
     }
 
     suspend fun getShortEpg(session: Session, streamId: Int): Result<ShortEpgResponse> = runCatching {
+        if (streamId == 0) error("Este canal não tem programação disponível (veio de uma playlist M3U simples, sem EPG).")
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_short_epg&stream_id=$streamId&limit=20"
@@ -200,35 +207,33 @@ class XtreamRepository {
     }
 
     suspend fun getVodCategories(session: Session): Result<List<Category>> = runCatching {
-        val apiResult = runCatching {
-            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                    "?username=${session.username}&password=${session.password}" +
-                    "&action=get_vod_categories"
-            val type = object : TypeToken<List<Category>>() {}.type
-            val categories: List<Category> = parseJsonList(fetchBody(url), type)
-            categories.sortedBy { it.categoryName.lowercase() }
+        if (!session.playlistUrl.isNullOrBlank()) {
+            val m3uResult = runCatching { M3uParser.toVodCategories(fetchM3uChannels(session)) }
+            m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
-        apiResult.getOrElse { apiError ->
-            if (session.playlistUrl.isNullOrBlank()) throw apiError
-            M3uParser.toVodCategories(fetchM3uChannels(session))
-        }
+        val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                "?username=${session.username}&password=${session.password}" +
+                "&action=get_vod_categories"
+        val type = object : TypeToken<List<Category>>() {}.type
+        val categories: List<Category> = parseJsonList(fetchBody(url), type)
+        categories.sortedBy { it.categoryName.lowercase() }
     }
 
     suspend fun getVodStreams(session: Session, categoryId: String?): Result<List<VodStream>> = runCatching {
-        val apiResult = runCatching {
-            val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
-            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                    "?username=${session.username}&password=${session.password}" +
-                    "&action=get_vod_streams$catParam"
-            val type = object : TypeToken<List<VodStream>>() {}.type
-            parseJsonList<List<VodStream>>(fetchBody(url), type)
+        if (!session.playlistUrl.isNullOrBlank()) {
+            val m3uResult = runCatching {
+                val channels = fetchM3uChannels(session)
+                val targetCategory = categoryId ?: M3uParser.toVodCategories(channels).firstOrNull()?.categoryId
+                if (targetCategory == null) emptyList() else M3uParser.toVodStreams(channels, targetCategory)
+            }
+            m3uResult.getOrNull()?.let { return@runCatching it }
         }
-        apiResult.getOrElse { apiError ->
-            if (session.playlistUrl.isNullOrBlank()) throw apiError
-            val channels = fetchM3uChannels(session)
-            val targetCategory = categoryId ?: M3uParser.toVodCategories(channels).firstOrNull()?.categoryId
-            if (targetCategory == null) emptyList() else M3uParser.toVodStreams(channels, targetCategory)
-        }
+        val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
+        val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                "?username=${session.username}&password=${session.password}" +
+                "&action=get_vod_streams$catParam"
+        val type = object : TypeToken<List<VodStream>>() {}.type
+        parseJsonList<List<VodStream>>(fetchBody(url), type)
     }
 
     /** Monta a URL de reprodução de um filme (VOD). */
@@ -239,6 +244,10 @@ class XtreamRepository {
     }
 
     suspend fun getSeriesCategories(session: Session): Result<List<Category>> = runCatching {
+        if (!session.playlistUrl.isNullOrBlank()) {
+            val m3uResult = runCatching { M3uParser.toSeriesCategories(fetchM3uChannels(session)) }
+            m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
+        }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_series_categories"
@@ -247,7 +256,20 @@ class XtreamRepository {
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
+    /** Séries vindas de M3U são agrupadas pelo nome (removendo o SxxExx do
+     * final) -- é o mesmo jeito que outros apps de IPTV leem séries numa
+     * playlist M3U simples, já que esse formato não separa formalmente
+     * série / temporada / episódio como a API Xtream faz. */
     suspend fun getSeries(session: Session, categoryId: String?): Result<List<SeriesItem>> = runCatching {
+        if (!session.playlistUrl.isNullOrBlank() && categoryId != null) {
+            val m3uResult = runCatching {
+                val channels = fetchM3uChannels(session)
+                val shows = M3uParser.toSeriesShows(channels, categoryId)
+                shows.forEach { m3uSeriesLookup[it.seriesId] = categoryId to it.name }
+                shows
+            }
+            m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
+        }
         val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
@@ -257,6 +279,10 @@ class XtreamRepository {
     }
 
     suspend fun getSeriesInfo(session: Session, seriesId: Int): Result<SeriesInfoResponse> = runCatching {
+        m3uSeriesLookup[seriesId]?.let { (categoryName, showName) ->
+            val channels = fetchM3uChannels(session)
+            return@runCatching M3uParser.toSeriesInfo(channels, categoryName, showName)
+        }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_series_info&series_id=$seriesId"

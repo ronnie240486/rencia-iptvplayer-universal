@@ -330,7 +330,11 @@ class ChannelListActivity : AppCompatActivity() {
                 }
             }
             guideAdapter.submitList(rows)
-            binding.tvEpgHeader.text = "EPG — programação dos canais"
+            binding.tvEpgHeader.text = if (rows.isEmpty()) {
+                "EPG não disponível para esta lista (playlist M3U simples, sem guia de programação)"
+            } else {
+                "EPG — programação dos canais"
+            }
             setLoading(false)
         }
     }

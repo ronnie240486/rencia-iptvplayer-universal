@@ -160,13 +160,18 @@ class HomeActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         if (session.mac.isBlank()) return
         lifecycleScope.launch {
-            renciaRepository.verifyAccess(session.mac)
-                .onSuccess { deviceCheck ->
-                    if (!deviceCheck.allowed) {
-                        SessionStore.clear(this@HomeActivity)
-                        Toast.makeText(this@HomeActivity, "MAC não autorizado ou acesso expirado", Toast.LENGTH_LONG).show()
-                        startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
-                        finish()
+            renciaRepository.refreshSessionIfChanged(session)
+                .onSuccess { updatedSession ->
+                    // null = playlist não mudou, está tudo igual, nada a
+                    // fazer. Não-null = o painel liberou uma playlist
+                    // diferente da que o app estava usando (ex: usuário
+                    // trocou de lista) -- salva a nova sessão automaticamente
+                    // e os próximos carregamentos (canais/filmes/séries) já
+                    // usam o servidor novo, sem precisar reinstalar nem
+                    // logar de novo.
+                    if (updatedSession != null) {
+                        SessionStore.saveSession(this@HomeActivity, updatedSession)
+                        Toast.makeText(this@HomeActivity, "Lista atualizada automaticamente", Toast.LENGTH_LONG).show()
                     }
                 }
                 .onFailure {

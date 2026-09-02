@@ -93,6 +93,30 @@ class RenciaRepository {
         )
     }
 
+    /** Confere se a playlist ligada a este MAC mudou no painel (ex: o
+     * usuário trocou de lista/servidor) e, se mudou, já devolve a sessão
+     * ATUALIZADA pronta pra salvar -- sem isso, o app continuava usando o
+     * servidor/usuário/senha antigos pra sempre, mesmo depois de trocar a
+     * lista no painel, e toda tela dava erro de "playlist vazia" porque
+     * ainda apontava pro servidor errado. Devolve null (dentro do Result de
+     * sucesso) quando não muda nada -- não precisa salvar de novo. */
+    suspend fun refreshSessionIfChanged(currentSession: Session): Result<Session?> = runCatching {
+        val mac = normalizeMac(currentSession.mac) ?: return@runCatching null
+        val deviceResponse = api.checkDevice(mac)
+        if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
+        val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
+        if (!deviceCheck.found) error("Este MAC não está mais cadastrado no painel.")
+        if (!deviceCheck.allowed) error("Acesso bloqueado para este dispositivo${deviceCheck.status?.let { " ($it)" } ?: ""}.")
+
+        val playlistUrl = deviceCheck.urlM3u8?.takeIf { it.isNotBlank() }
+            ?: fetchFallbackPlaylistUrl(mac)
+            ?: error("Nenhuma playlist está liberada para este MAC.")
+
+        if (playlistUrl == currentSession.playlistUrl) return@runCatching null
+
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
+    }
+
     suspend fun verifyAccess(rawMac: String): Result<DeviceCheckResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val response = api.checkDevice(mac)

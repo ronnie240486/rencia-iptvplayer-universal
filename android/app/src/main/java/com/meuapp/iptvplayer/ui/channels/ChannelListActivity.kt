@@ -41,6 +41,7 @@ class ChannelListActivity : AppCompatActivity() {
     private lateinit var subcategoryAdapter: CategorySidebarAdapter
     private lateinit var channelAdapter: ChannelAdapter
     private lateinit var guideAdapter: GuideAdapter
+    private lateinit var miniGuideAdapter: MiniGuideAdapter
     private var miniPlayer: ExoPlayer? = null
     private var selectedChannel: LiveStream? = null
     private var epgMode = false
@@ -77,6 +78,10 @@ class ChannelListActivity : AppCompatActivity() {
         guideAdapter = GuideAdapter(onReminderClick = ::toggleGuideReminder)
         binding.rvEpg.layoutManager = LinearLayoutManager(this)
         binding.rvEpg.adapter = guideAdapter
+
+        miniGuideAdapter = MiniGuideAdapter()
+        binding.rvMiniGuide.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        binding.rvMiniGuide.adapter = miniGuideAdapter
         binding.tvEpgHeader.text = "EPG — programação dos canais"
 
         subcategoryAdapter = CategorySidebarAdapter(
@@ -124,6 +129,7 @@ class ChannelListActivity : AppCompatActivity() {
     private fun switchContentTab(showEpg: Boolean) {
         epgMode = showEpg
         binding.miniPlayerPanel.visibility = if (showEpg) View.GONE else View.VISIBLE
+        binding.rvMiniGuide.visibility = if (showEpg || miniGuideAdapter.itemCount == 0) View.GONE else View.VISIBLE
         if (showEpg) {
             miniPlayer?.stop()
             binding.tvSelectedChannel.text = "EPG — programação"
@@ -269,6 +275,26 @@ class ChannelListActivity : AppCompatActivity() {
             setMediaItem(MediaItem.fromUri(streamUrl))
             prepare()
             playWhenReady = true
+        }
+        loadMiniGuide(channel)
+    }
+
+    /** Faixa compacta com os próximos programas do canal que está tocando
+     * no mini player agora -- só o suficiente pra dar uma prévia (5-6
+     * programas), sem precisar abrir a aba EPG completa. */
+    private fun loadMiniGuide(channel: LiveStream) {
+        val session = SessionStore.getSavedSession(this) ?: return
+        lifecycleScope.launch {
+            repository.getShortEpg(session, channel.streamId)
+                .onSuccess { response ->
+                    val listings = response.listings.orEmpty()
+                    miniGuideAdapter.submitList(listings)
+                    binding.rvMiniGuide.visibility = if (listings.isEmpty()) View.GONE else View.VISIBLE
+                }
+                .onFailure {
+                    miniGuideAdapter.submitList(emptyList())
+                    binding.rvMiniGuide.visibility = View.GONE
+                }
         }
     }
 

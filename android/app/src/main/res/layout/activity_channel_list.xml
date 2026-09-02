@@ -120,6 +120,17 @@
                     android:textAllCaps="false" />
             </FrameLayout>
 
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvMiniGuide"
+                android:layout_width="match_parent"
+                android:layout_height="76dp"
+                android:layout_marginHorizontal="12dp"
+                android:layout_marginTop="6dp"
+                android:clipToPadding="false"
+                android:orientation="horizontal"
+                android:paddingHorizontal="2dp"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:id="@+id/contentTabs"
                 android:layout_width="match_parent"

@@ -2,14 +2,18 @@ package com.meuapp.iptvplayer.ui.vod
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
+import android.widget.EditText
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.meuapp.iptvplayer.R
 import com.meuapp.iptvplayer.data.api.XtreamRepository
+import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.VodStream
 import com.meuapp.iptvplayer.databinding.ActivityVodBinding
 import com.meuapp.iptvplayer.ui.common.CategorySidebarAdapter
@@ -18,6 +22,7 @@ import com.meuapp.iptvplayer.ui.player.PlayerActivity
 import com.meuapp.iptvplayer.util.AppearancePrefs
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch
+import java.text.Normalizer
 
 class VodActivity : AppCompatActivity() {
 
@@ -47,7 +52,7 @@ class VodActivity : AppCompatActivity() {
         categoryAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
             barColorHex = AppearancePrefs.getCategoryBarColor(this)
-        ) { category -> loadMovies(category.categoryId, category.categoryName) }
+        ) { category -> onCategorySelected(category) }
 
         gridAdapter = VodAdapter(
             onClick = { movie -> openPlayer(movie) },
@@ -57,11 +62,9 @@ class VodActivity : AppCompatActivity() {
             }
         )
 
-        // A barra de categorias de Filmes é HORIZONTAL, no topo (diferente
-        // da barra vertical lateral usada em Canais).
-        binding.rvCategories.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        binding.rvCategories.adapter = categoryAdapter
-        binding.rvCategories.visibility = if (AppearancePrefs.isCategoryBarEnabled(this)) View.VISIBLE else View.GONE
+        binding.rvSidebar.layoutManager = LinearLayoutManager(this)
+        binding.rvSidebar.adapter = categoryAdapter
+        binding.rvSidebar.visibility = if (AppearancePrefs.isCategoryBarEnabled(this)) View.VISIBLE else View.GONE
 
         binding.rvGrid.layoutManager = GridLayoutManager(this, 3)
         binding.rvGrid.adapter = gridAdapter
@@ -69,12 +72,61 @@ class VodActivity : AppCompatActivity() {
         loadCategories()
     }
 
+    /** Detecta categorias de conteúdo adulto pelo nome (ignora acentos e
+     * maiúsculas/minúsculas) -- essas ficam escondidas no fim da lista, não
+     * misturadas com o resto, e só abrem com PIN se o usuário tiver
+     * configurado um em Ajustes > Controle parental. */
+    private fun isAdultCategory(name: String): Boolean {
+        val normalized = Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD)
+            .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+        val keywords = listOf("adulto", "adult", "+18", "18+", "xxx", "erotic", "erotico", "sexo", "hot", "porn")
+        return keywords.any { normalized.contains(it) }
+    }
+
+    private fun sortWithAdultLast(categories: List<Category>): List<Category> {
+        val (adult, normal) = categories.partition { isAdultCategory(it.categoryName) }
+        return normal.sortedBy { it.categoryName.lowercase() } + adult.sortedBy { it.categoryName.lowercase() }
+    }
+
+    private fun onCategorySelected(category: Category) {
+        if (isAdultCategory(category.categoryName)) {
+            val savedPin = getSharedPreferences("supremus_settings", MODE_PRIVATE).getString("parental_pin", null)
+            if (!savedPin.isNullOrBlank()) {
+                askPinAndProceed(savedPin, category)
+                return
+            }
+        }
+        loadMovies(category.categoryId, category.categoryName)
+    }
+
+    private fun askPinAndProceed(savedPin: String, category: Category) {
+        val input = EditText(this).apply {
+            hint = "PIN com 4 dígitos"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            maxLines = 1
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Conteúdo adulto")
+            .setMessage("Digite o PIN do controle parental para continuar.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Entrar") { _, _ ->
+                val typed = input.text.toString().filter { it.isDigit() }
+                if (typed == savedPin) {
+                    loadMovies(category.categoryId, category.categoryName)
+                } else {
+                    Toast.makeText(this, "PIN incorreto", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
     private fun loadCategories() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
         lifecycleScope.launch {
             repository.getVodCategories(session)
-                .onSuccess { categories -> categoryAdapter.submitList(categories) }
+                .onSuccess { categories -> categoryAdapter.submitList(sortWithAdultLast(categories)) }
                 .onFailure {
                     binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
                     showError("Não foi possível carregar as categorias de filmes")
@@ -120,7 +172,7 @@ class VodActivity : AppCompatActivity() {
         super.onResume()
         if (::categoryAdapter.isInitialized) {
             val enabled = AppearancePrefs.isCategoryBarEnabled(this)
-            binding.rvCategories.visibility = if (enabled) View.VISIBLE else View.GONE
+            binding.rvSidebar.visibility = if (enabled) View.VISIBLE else View.GONE
             categoryAdapter.updateAppearance(enabled, AppearancePrefs.getCategoryBarColor(this))
         }
         binding.backdropView.setPoster(selectedPosterUrl, AppearancePrefs.isBackdropPosterEnabled(this))

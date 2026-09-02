@@ -272,11 +272,8 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     private fun displayChannels(channels: List<LiveStream>, categoryName: String) {
-        // Grupo pequeno (as opções de link/qualidade de UM canal, ex:
-        // "HBO FHD¹/FHD²/HD...") fica mais claro como lista vertical, uma
-        // embaixo da outra -- categoria grande com muitos canais
-        // diferentes continua em grade (melhor pra navegar/rolar).
-        channelsLayoutManager.spanCount = if (channels.size in 1..10) 1 else 2
+        // Sempre lista vertical (uma linha por canal), não grade.
+        channelsLayoutManager.spanCount = 1
         channelAdapter.submitList(channels)
         binding.tvChannelsHeader.text = if (channels.isEmpty()) {
             "$categoryName · nenhum canal encontrado"

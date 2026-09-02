@@ -14,13 +14,22 @@ import com.meuapp.iptvplayer.databinding.ItemSidebarCategoryBinding
  * A cor da tarja da categoria ativa é configurável (Configurações > Aparência).
  */
 class CategorySidebarAdapter(
-    private val barEnabled: Boolean,
-    private val barColorHex: String,
+    private var barEnabled: Boolean,
+    private var barColorHex: String,
     private val onSelect: (Category) -> Unit
 ) : RecyclerView.Adapter<CategorySidebarAdapter.ViewHolder>() {
 
     private val items = mutableListOf<Category>()
     private var selectedIndex = 0
+
+    /** Chamado quando o usuário muda a aparência (Ajustes > cor da tarja)
+     * enquanto a tela já está aberta -- sem isso, a mudança só aparecia
+     * depois de sair e voltar pra tela. */
+    fun updateAppearance(enabled: Boolean, colorHex: String) {
+        barEnabled = enabled
+        barColorHex = colorHex
+        notifyDataSetChanged()
+    }
 
     fun submitList(newItems: List<Category>, preSelectIndex: Int = 0, autoSelect: Boolean = true) {
         items.clear()

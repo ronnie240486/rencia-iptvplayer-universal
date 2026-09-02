@@ -52,10 +52,27 @@ object M3uParser {
         var pendingTvgId: String? = null
         var anonymousCounter = 0
 
+        // Algumas playlists escrevem o MESMO grupo de jeitos ligeiramente
+        // diferentes ao longo do arquivo (ex: "ESPORTE", "Esporte",
+        // "ESPORTE " com espaço a mais) -- sem juntar isso, cada variação
+        // virava uma categoria "duplicada" na lista, cada uma com só uma
+        // fração dos canais (por isso uma categoria "ESPORTE" podia
+        // mostrar só 1 canal, enquanto os outros ficavam escondidos numa
+        // outra "ESPORTE" quase igual). Essa tabela junta tudo que
+        // normaliza pro mesmo texto (sem espaços extras, sem diferença de
+        // maiúscula/minúscula) num único nome canônico -- o primeiro jeito
+        // que apareceu no arquivo.
+        val canonicalGroupNames = mutableMapOf<String, String>()
+        fun canonicalGroup(raw: String): String {
+            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
+            val key = trimmed.lowercase()
+            return canonicalGroupNames.getOrPut(key) { trimmed }
+        }
+
         for (line in lines) {
             when {
                 line.startsWith("#EXTINF", ignoreCase = true) -> {
-                    pendingGroup = extractAttribute(line, "group-title") ?: "Geral"
+                    pendingGroup = canonicalGroup(extractAttribute(line, "group-title") ?: "Geral")
                     pendingLogo = extractAttribute(line, "tvg-logo")
                     pendingTvgId = extractAttribute(line, "tvg-id") ?: extractAttribute(line, "tvg-name")
                     // O nome do canal vem depois da última vírgula do #EXTINF.
@@ -73,7 +90,7 @@ object M3uParser {
                     anonymousCounter++
                     result.add(
                         ParsedChannel(
-                            groupTitle = pendingGroup ?: "Geral",
+                            groupTitle = pendingGroup ?: canonicalGroup("Geral"),
                             name = pendingName ?: "Canal $anonymousCounter",
                             logoUrl = pendingLogo,
                             streamUrl = line,

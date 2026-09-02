@@ -1,7 +1,6 @@
 package com.meuapp.iptvplayer.data.api
 
 import com.meuapp.iptvplayer.data.model.DeviceCheckResponse
-import com.meuapp.iptvplayer.data.model.RenciaLoginResponse
 import com.meuapp.iptvplayer.data.model.UltraConfigResponse
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -22,21 +21,53 @@ class RenciaRepository {
         .build()
         .create(RenciaApiService::class.java)
 
+    // Login por USUÁRIO/SENHA não existe mais nesse app -- o painel de
+    // referência (que o usuário mandou) só ativa por MAC do aparelho.
+    // Mantido só pra não quebrar chamadas antigas, mas sempre falha.
     suspend fun authenticateCustomer(login: String, password: String): Result<Session> = runCatching {
-        require(login.isNotBlank() && password.isNotBlank()) { "Informe usuário e senha." }
-        val response = api.loginCustomer(APP_ID, mapOf("login" to login.trim(), "password" to password))
-        val config = response.body()
-        if (!response.isSuccessful || config == null) error(config?.error ?: "Usuário ou senha inválidos.")
-        if (!config.registered || !config.allowed) error(config.blockMessage ?: "Este acesso está indisponível.")
-        toSession(config, login.trim(), password)
+        error("Este aplicativo usa login por MAC.")
     }
 
     suspend fun verifyCustomerAccess(login: String, password: String): Result<Session> =
         authenticateCustomer(login, password)
 
-    private fun toSession(config: RenciaLoginResponse, clientLogin: String, clientPassword: String): Session {
-        val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
-            ?: error("Nenhuma playlist foi liberada para esta conta.")
+    /** Fluxo real de ativação: MAC do aparelho -> painel confirma acesso
+     * (checkDevice) -> devolve a URL da playlist Xtream já liberada pra
+     * esse MAC. Se checkDevice não trouxer a URL, tenta a fonte alternativa
+     * (getPlaylistSources) antes de desistir. */
+    suspend fun authenticateByMac(rawMac: String): Result<Session> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido. O aparelho deve exibir 12 dígitos hexadecimais.")
+        val deviceResponse = api.checkDevice(mac)
+        if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
+        val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
+        if (!deviceCheck.found) error("Este MAC não está cadastrado no painel.")
+        if (!deviceCheck.allowed) error("Acesso bloqueado para este dispositivo${deviceCheck.status?.let { " ($it)" } ?: ""}.")
+
+        val playlistUrl = deviceCheck.urlM3u8?.takeIf { it.isNotBlank() }
+            ?: fetchFallbackPlaylistUrl(mac)
+            ?: error("Nenhuma playlist foi liberada para este MAC.")
+
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
+    }
+
+    /** Alguns dispositivos só têm a playlist cadastrada na fonte alternativa
+     * (guim.php), não no checkDevice principal -- tenta essa antes de
+     * desistir de vez. */
+    private suspend fun fetchFallbackPlaylistUrl(mac: String): String? = runCatching {
+        val response = api.getPlaylistSources(mac)
+        if (!response.isSuccessful) return null
+        response.body()?.data?.firstNotNullOfOrNull { source ->
+            source.url?.takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+
+    private fun sessionFromPlaylistUrl(
+        playlistUrl: String,
+        mac: String,
+        appName: String?,
+        status: String?,
+        expirationDate: String?,
+    ): Session {
         val url = playlistUrl.toHttpUrlOrNull()
             ?: error("A playlist recebida não possui uma URL válida.")
         val username = url.queryParameter("username")?.trim().orEmpty()
@@ -48,16 +79,16 @@ class RenciaRepository {
         val port = if (url.port == defaultPort) "" else ":${url.port}"
         val serverUrl = "${url.scheme}://${url.host}$port"
         return Session(
-            mac = config.mac.orEmpty(),
+            mac = mac,
             serverUrl = serverUrl,
             username = username,
             password = password,
-            status = "active",
-            expirationDate = null,
-            appName = config.appName ?: "Rencia",
-            clientLogin = clientLogin,
-            clientPassword = clientPassword,
-            layoutId = config.layoutId ?: "classic",
+            status = status ?: "active",
+            expirationDate = expirationDate,
+            appName = appName ?: "Rencia",
+            clientLogin = null,
+            clientPassword = null,
+            layoutId = "classic",
             playlistUrl = playlistUrl
         )
     }

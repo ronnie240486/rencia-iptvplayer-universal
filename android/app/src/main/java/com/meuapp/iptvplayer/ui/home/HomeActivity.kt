@@ -4,6 +4,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
@@ -11,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.meuapp.iptvplayer.data.api.RenciaRepository
+import com.meuapp.iptvplayer.databinding.ActivityHomeBinding
 import com.meuapp.iptvplayer.ui.channels.ChannelListActivity
 import com.meuapp.iptvplayer.ui.login.LoginActivity
 import com.meuapp.iptvplayer.ui.multi.MultiScreenActivity
@@ -24,12 +28,20 @@ import com.meuapp.iptvplayer.util.RemoteLayoutTheme
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch
 
+/** Home real do app: fundo fixo (brasão) com 9 botões posicionados por cima
+ * em coordenadas exatas (fração da tela), não um painel colorido gerado por
+ * código. Confere o acesso (MAC ainda liberado no painel) a cada 5 minutos
+ * enquanto o app fica aberto. */
 class HomeActivity : AppCompatActivity() {
-    companion object { private const val ACCESS_CHECK_INTERVAL_MS = 5 * 60 * 1000L }
 
+    companion object {
+        private const val ACCESS_CHECK_INTERVAL_MS = 300_000L
+    }
+
+    private lateinit var binding: ActivityHomeBinding
     private val renciaRepository = RenciaRepository()
     private val accessHandler = Handler(Looper.getMainLooper())
-    private val accessCheckRunnable = object : Runnable {
+    private val accessCheckRunnable: Runnable = object : Runnable {
         override fun run() {
             verifyAccessNow()
             accessHandler.postDelayed(this, ACCESS_CHECK_INTERVAL_MS)
@@ -40,15 +52,21 @@ class HomeActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         hideSystemBars()
         supportActionBar?.hide()
+
         val session = SessionStore.getSavedSession(this)
-        if (session == null || session.clientLogin.isNullOrBlank() || session.clientPassword.isNullOrBlank()) {
+        if (session == null || session.mac.isBlank()) {
             SessionStore.clear(this)
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
         RemoteLayoutTheme.save(this, session.layoutId)
-        setContentView(RemoteDashboardFactory.create(this, session.layoutId, ::dispatchAction))
+
+        binding = ActivityHomeBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        bindHomeActions()
+        binding.dashboardOverlay.post { positionHomeTargets() }
     }
 
     override fun onStart() {
@@ -65,25 +83,95 @@ class HomeActivity : AppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) {
+            hideSystemBars()
+            if (::binding.isInitialized) binding.dashboardOverlay.post { positionHomeTargets() }
+        }
+    }
+
+    private fun bindHomeActions() {
+        bindAction(binding.btnLiveTv, "live")
+        bindAction(binding.btnEpg, "epg")
+        bindAction(binding.btnVod, "vod")
+        bindAction(binding.btnSeries, "series")
+        bindAction(binding.btnAccount, "account")
+        bindAction(binding.btnMulti, "multi")
+        bindAction(binding.btnFavorite, "favorites")
+        bindAction(binding.btnRadio, "radio")
+        bindAction(binding.btnSettings, "settings")
+    }
+
+    private fun bindAction(button: ImageButton, action: String) {
+        button.setOnClickListener { dispatchAction(action) }
+        button.alpha = 1f
+        button.isFocusable = true
+        button.isClickable = true
+    }
+
+    /** Todas as posições/tamanhos são frações da tela (0..1) medidas na
+     * imagem de fundo real -- igual ao app de referência, pra encaixar
+     * certinho nos "encaixes" desenhados na imagem. */
+    private fun positionHomeTargets() {
+        val width = binding.dashboardOverlay.width
+        val height = binding.dashboardOverlay.height
+        if (width <= 0 || height <= 0) return
+
+        place(binding.homeCrest, 0.34f, -0.02f, 0.32f, 0.62f)
+        place(binding.btnLiveTv, 0.172f, 0.477f, 0.114f, 0.247f)
+        place(binding.btnEpg, 0.357f, 0.477f, 0.116f, 0.247f)
+        place(binding.btnVod, 0.544f, 0.477f, 0.139f, 0.247f)
+        place(binding.btnSeries, 0.733f, 0.477f, 0.118f, 0.247f)
+        place(binding.btnAccount, 0.172f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnMulti, 0.317f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnFavorite, 0.462f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnRadio, 0.607f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnSettings, 0.752f, 0.785f, 0.1f, 0.139f)
+
+        placeLabel(binding.homeLabelLive, 0.172f, 0.477f, 0.114f, 0.247f)
+        placeLabel(binding.homeLabelEpg, 0.357f, 0.477f, 0.116f, 0.247f)
+        placeLabel(binding.homeLabelVod, 0.544f, 0.477f, 0.139f, 0.247f)
+        placeLabel(binding.homeLabelSeries, 0.733f, 0.477f, 0.118f, 0.247f)
+        placeLabel(binding.homeLabelAccount, 0.172f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelMulti, 0.317f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelFavorite, 0.462f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelRadio, 0.607f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelSettings, 0.752f, 0.785f, 0.1f, 0.139f)
+    }
+
+    private fun place(view: View, x: Float, y: Float, w: Float, h: Float) {
+        val width = binding.dashboardOverlay.width
+        val height = binding.dashboardOverlay.height
+        val params = FrameLayout.LayoutParams(
+            (width * w).toInt().coerceAtLeast(1),
+            (height * h).toInt().coerceAtLeast(1)
+        )
+        params.leftMargin = (width * x).toInt()
+        params.topMargin = (height * y).toInt()
+        view.layoutParams = params
+    }
+
+    private fun placeLabel(view: View, x: Float, y: Float, w: Float, h: Float) {
+        place(view, x, y, w, h)
+        view.isClickable = false
+        view.isFocusable = false
     }
 
     private fun verifyAccessNow() {
         val session = SessionStore.getSavedSession(this) ?: return
-        val login = session.clientLogin
-        val password = session.clientPassword
-        if (login.isNullOrBlank() || password.isNullOrBlank()) return
+        if (session.mac.isBlank()) return
         lifecycleScope.launch {
-            renciaRepository.verifyCustomerAccess(login, password)
-                .onSuccess { refreshed ->
-                    val changedLayout = refreshed.layoutId != session.layoutId
-                    SessionStore.saveSession(this@HomeActivity, refreshed)
-                    RemoteLayoutTheme.save(this@HomeActivity, refreshed.layoutId)
-                    if (changedLayout) recreate()
+            renciaRepository.verifyAccess(session.mac)
+                .onSuccess { deviceCheck ->
+                    if (!deviceCheck.allowed) {
+                        SessionStore.clear(this@HomeActivity)
+                        Toast.makeText(this@HomeActivity, "MAC não autorizado ou acesso expirado", Toast.LENGTH_LONG).show()
+                        startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
+                        finish()
+                    }
                 }
                 .onFailure {
                     SessionStore.clear(this@HomeActivity)
-                    Toast.makeText(this@HomeActivity, "Acesso indisponível para esta conta", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@HomeActivity, "Acesso indisponível para este MAC", Toast.LENGTH_LONG).show()
                     startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
                     finish()
                 }
@@ -92,21 +180,23 @@ class HomeActivity : AppCompatActivity() {
 
     private fun dispatchAction(action: String) {
         when (action) {
-            RemoteDashboardFactory.LIVE -> open(ChannelListActivity::class.java)
-            RemoteDashboardFactory.EPG -> startActivity(Intent(this, ChannelListActivity::class.java).apply {
+            "live" -> open(ChannelListActivity::class.java)
+            "epg" -> startActivity(Intent(this, ChannelListActivity::class.java).apply {
                 putExtra(ChannelListActivity.EXTRA_OPEN_EPG, true)
             })
-            RemoteDashboardFactory.VOD -> open(VodActivity::class.java)
-            RemoteDashboardFactory.SERIES -> open(SeriesActivity::class.java)
-            RemoteDashboardFactory.ACCOUNT -> open(AccountActivity::class.java)
-            RemoteDashboardFactory.MULTI -> open(MultiScreenActivity::class.java)
-            RemoteDashboardFactory.FAVORITES -> open(FavoritesActivity::class.java)
-            RemoteDashboardFactory.RADIO -> open(RadioActivity::class.java)
-            RemoteDashboardFactory.SETTINGS -> open(SettingsActivity::class.java)
+            "vod" -> open(VodActivity::class.java)
+            "series" -> open(SeriesActivity::class.java)
+            "account" -> open(AccountActivity::class.java)
+            "multi" -> open(MultiScreenActivity::class.java)
+            "favorites" -> open(FavoritesActivity::class.java)
+            "radio" -> open(RadioActivity::class.java)
+            "settings" -> open(SettingsActivity::class.java)
         }
     }
 
-    private fun open(activity: Class<*>) = startActivity(Intent(this, activity))
+    private fun open(activity: Class<*>) {
+        startActivity(Intent(this, activity))
+    }
 
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)

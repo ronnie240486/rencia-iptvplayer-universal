@@ -1,23 +1,30 @@
 package com.meuapp.iptvplayer.ui.login
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.meuapp.iptvplayer.R
 import com.meuapp.iptvplayer.data.api.RenciaRepository
 import com.meuapp.iptvplayer.databinding.ActivityLoginBinding
 import com.meuapp.iptvplayer.ui.home.HomeActivity
+import com.meuapp.iptvplayer.util.MacAddressProvider
 import com.meuapp.iptvplayer.util.RemoteLayoutTheme
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch
 
+/** Ativação por MAC do aparelho -- não é login de usuário/senha. O MAC é
+ * detectado automaticamente e a ativação já dispara sozinha assim que a
+ * tela abre; o botão "Ativar aparelho" serve pra tentar de novo. */
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
     private val renciaRepository = RenciaRepository()
-    private var loginInProgress = false
+    private var activationInProgress = false
+    private var autoActivationStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,23 +33,43 @@ class LoginActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         val session = SessionStore.getSavedSession(this)
-        binding.etLogin.setText(session?.clientLogin.orEmpty())
-        binding.etPassword.setText(session?.clientPassword.orEmpty())
-        binding.btnLogin.setOnClickListener { authenticate() }
+        val detectedMac = session?.mac?.takeIf { it.isNotBlank() } ?: MacAddressProvider.getFixedMac(this)
+
+        binding.etMac.setText(detectedMac)
+        binding.etMac.showSoftInputOnFocus = false
+        binding.etMac.isCursorVisible = false
+        binding.etMac.isLongClickable = false
+        binding.etMac.setOnClickListener { copyMacToClipboard() }
+        binding.etMac.setOnLongClickListener { copyMacToClipboard(); true }
+        binding.btnLogin.setOnClickListener { activateDevice() }
+
+        binding.root.post {
+            if (!isFinishing && !autoActivationStarted && detectedMac.isNotBlank()) {
+                autoActivationStarted = true
+                activateDevice()
+            }
+        }
     }
 
-    private fun authenticate() {
-        if (loginInProgress) return
-        val login = binding.etLogin.text?.toString().orEmpty().trim()
-        val password = binding.etPassword.text?.toString().orEmpty()
-        if (login.isBlank() || password.isBlank()) {
-            showError(getString(R.string.error_credentials_required))
+    private fun copyMacToClipboard() {
+        val mac = binding.etMac.text?.toString().orEmpty()
+        if (mac.isBlank()) return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("MAC", mac))
+        Toast.makeText(this, "MAC copiado", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun activateDevice() {
+        if (activationInProgress) return
+        val mac = binding.etMac.text?.toString().orEmpty().trim()
+        if (renciaRepository.normalizeMac(mac) == null) {
+            showError("MAC inválido. O aparelho deve exibir 12 dígitos hexadecimais.")
             return
         }
-        loginInProgress = true
+        activationInProgress = true
         setLoading(true)
         lifecycleScope.launch {
-            renciaRepository.authenticateCustomer(login, password)
+            renciaRepository.authenticateByMac(mac)
                 .onSuccess { session ->
                     SessionStore.saveSession(this@LoginActivity, session)
                     RemoteLayoutTheme.save(this@LoginActivity, session.layoutId)
@@ -50,9 +77,9 @@ class LoginActivity : AppCompatActivity() {
                     finish()
                 }
                 .onFailure { error ->
-                    loginInProgress = false
+                    activationInProgress = false
                     setLoading(false)
-                    showError(error.message ?: getString(R.string.error_login))
+                    showError(error.message ?: "Não foi possível ativar o aparelho.")
                 }
         }
     }
@@ -60,8 +87,7 @@ class LoginActivity : AppCompatActivity() {
     private fun setLoading(loading: Boolean) {
         binding.progressBar.visibility = if (loading) View.VISIBLE else View.GONE
         binding.btnLogin.isEnabled = !loading
-        binding.etLogin.isEnabled = !loading
-        binding.etPassword.isEnabled = !loading
+        binding.etMac.isEnabled = !loading
         binding.tvError.visibility = View.GONE
     }
 

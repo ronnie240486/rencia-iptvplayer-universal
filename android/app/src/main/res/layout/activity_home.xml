@@ -2,7 +2,8 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#071019"
+    android:clipChildren="false">
 
     <ImageView
         android:id="@+id/homeBackground"
@@ -10,131 +11,227 @@
         android:layout_height="match_parent"
         android:contentDescription="@null"
         android:scaleType="fitXY"
-        android:src="@drawable/home_dashboard" />
+        android:src="@drawable/home_background_enriched_no_crest" />
 
     <FrameLayout
         android:id="@+id/dashboardOverlay"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:clipChildren="false">
+
+        <ImageView
+            android:id="@+id/homeCrest"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:contentDescription="SUPREME"
+            android:scaleType="fitCenter"
+            android:src="@drawable/home_crest_recreated" />
 
         <ImageButton
             android:id="@+id/btnLiveTv"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Live TV"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="LIVE TV"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="0dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/icon_live_camera_clean" />
+
+        <TextView
+            android:id="@+id/homeLabelLive"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="12dp"
+            android:text="LIVE TV"
+            android:textColor="#e6e4d8"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnEpg"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
+            android:background="@drawable/home_card_selector"
             android:contentDescription="EPG"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="0dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/icon_epg_board_clean" />
+
+        <TextView
+            android:id="@+id/homeLabelEpg"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="12dp"
+            android:text="EPG"
+            android:textColor="#e6e4d8"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnVod"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
+            android:background="@drawable/home_card_selector"
             android:contentDescription="VOD"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="0dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/icon_vod_reel_clean" />
+
+        <TextView
+            android:id="@+id/homeLabelVod"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="12dp"
+            android:text="VOD"
+            android:textColor="#e6e4d8"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnSeries"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Séries"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="SERIES"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="0dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/icon_series_binders_clean" />
+
+        <TextView
+            android:id="@+id/homeLabelSeries"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="12dp"
+            android:text="SERIES"
+            android:textColor="#e6e4d8"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnAccount"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Conta"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="ACCOUNT"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="12dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/home_icon_account_final" />
+
+        <TextView
+            android:id="@+id/homeLabelAccount"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="8dp"
+            android:text="ACCOUNT"
+            android:textColor="#e6e4d8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnMulti"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Multi"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="MULTI"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="12dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/home_icon_multi_final" />
 
-        <ImageButton
-            android:id="@+id/btnCatchUp"
+        <TextView
+            android:id="@+id/homeLabelMulti"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Catch Up"
-            android:focusable="true"
-            android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="8dp"
+            android:text="MULTI"
+            android:textColor="#e6e4d8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnFavorite"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Favoritos"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="FAVORITE"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="12dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/home_icon_favorite_final" />
+
+        <TextView
+            android:id="@+id/homeLabelFavorite"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="8dp"
+            android:text="FAVORITE"
+            android:textColor="#e6e4d8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnRadio"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Rádio"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="RADIO"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="12dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/home_icon_radio_final" />
+
+        <TextView
+            android:id="@+id/homeLabelRadio"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="8dp"
+            android:text="RADIO"
+            android:textColor="#e6e4d8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
 
         <ImageButton
             android:id="@+id/btnSettings"
             android:layout_width="1dp"
             android:layout_height="1dp"
-            android:background="@android:color/transparent"
-            android:foreground="?android:attr/selectableItemBackground"
-            android:clickable="true"
-            android:contentDescription="Configurações"
+            android:background="@drawable/home_card_selector"
+            android:contentDescription="SETTINGS"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:importantForAccessibility="yes" />
+            android:padding="20dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/home_icon_settings_final" />
+
+        <TextView
+            android:id="@+id/homeLabelSettings"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:gravity="bottom|center_horizontal"
+            android:paddingBottom="8dp"
+            android:text="SETTINGS"
+            android:textColor="#e6e4d8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </FrameLayout>
 </FrameLayout>

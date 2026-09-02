@@ -13,6 +13,11 @@ class ChannelAdapter(
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     private val items = mutableListOf<LiveStream>()
+    // Clique duplo (dois toques/OK rápidos seguidos) também abre tela
+    // cheia -- em TV Box com controle remoto, "pressão longa" nem sempre
+    // funciona bem, então isso serve de alternativa mais confiável.
+    private var lastClickPosition = -1
+    private var lastClickAt = 0L
 
     fun submitList(newItems: List<LiveStream>) {
         items.clear()
@@ -31,7 +36,17 @@ class ChannelAdapter(
         holder.binding.ivIcon.load(channel.streamIcon) {
             crossfade(true)
         }
-        holder.binding.root.setOnClickListener { onClick(channel) }
+        holder.binding.root.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (lastClickPosition == position && now - lastClickAt < 400) {
+                lastClickPosition = -1
+                onLongClick(channel)
+            } else {
+                lastClickPosition = position
+                lastClickAt = now
+                onClick(channel)
+            }
+        }
         holder.binding.root.setOnLongClickListener {
             onLongClick(channel)
             true

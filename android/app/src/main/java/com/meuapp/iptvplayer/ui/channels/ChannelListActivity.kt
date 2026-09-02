@@ -118,6 +118,14 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     private fun setupMiniPlayer() {
+        // Tocar no nome do canal já abre a tela cheia -- em controle
+        // remoto de TV Box isso é mais direto do que exigir clique duplo
+        // ou pressão longa. (Não faz isso no PlayerView em si, porque ele
+        // já usa toque pra mostrar/esconder os próprios controles.)
+        binding.tvSelectedChannel.setOnClickListener {
+            selectedChannel?.let { openFullPlayer(it) }
+        }
+
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(1).setContentType(3).build(), true)
             setHandleAudioBecomingNoisy(true)
@@ -300,6 +308,8 @@ class ChannelListActivity : AppCompatActivity() {
         startActivity(Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId))
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
+            putExtra(PlayerActivity.EXTRA_STREAM_ID, channel.streamId)
+            putExtra(PlayerActivity.EXTRA_EPG_CHANNEL_ID, channel.epgChannelId)
         })
     }
 

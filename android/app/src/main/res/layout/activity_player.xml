@@ -51,4 +51,17 @@
         android:shadowColor="@android:color/black"
         android:shadowRadius="4" />
 
+    <TextView
+        android:id="@+id/tvNowPlaying"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:background="#AA000000"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:textColor="@android:color/white"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
 </FrameLayout>

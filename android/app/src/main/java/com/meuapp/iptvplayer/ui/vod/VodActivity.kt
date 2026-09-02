@@ -166,7 +166,7 @@ class VodActivity : AppCompatActivity() {
 
     private fun openPlayer(movie: VodStream) {
         val session = SessionStore.getSavedSession(this) ?: return
-        val streamUrl = repository.buildVodStreamUrl(session, movie.streamId, movie.containerExtension)
+        val streamUrl = movie.directStreamUrl ?: repository.buildVodStreamUrl(session, movie.streamId, movie.containerExtension)
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, movie.name)

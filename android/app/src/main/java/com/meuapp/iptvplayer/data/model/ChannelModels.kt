@@ -13,7 +13,12 @@ data class LiveStream(
     @SerializedName("stream_id") val streamId: Int,
     @SerializedName("stream_icon") val streamIcon: String?,
     @SerializedName("category_id") val categoryId: String?,
-    @SerializedName("epg_channel_id") val epgChannelId: String?
+    @SerializedName("epg_channel_id") val epgChannelId: String?,
+    // Preenchido só quando o canal veio de uma playlist M3U (get.php) em
+    // vez da API Xtream (player_api.php) -- nesse caso o link de
+    // reprodução já vem pronto na própria lista, não dá pra "montar" a
+    // partir de streamId como no fluxo normal da API.
+    val directStreamUrl: String? = null
 )
 
 /** Representa uma entrada (programa) do EPG de um canal específico.
@@ -58,7 +63,10 @@ data class VodStream(
     @SerializedName("stream_icon") val streamIcon: String?,
     @SerializedName("category_id") val categoryId: String?,
     @SerializedName("rating") val rating: String?,
-    @SerializedName("container_extension") val containerExtension: String?
+    @SerializedName("container_extension") val containerExtension: String?,
+    // Preenchido só quando o filme veio de uma playlist M3U (get.php) em
+    // vez da API Xtream (player_api.php) -- ver LiveStream.directStreamUrl.
+    val directStreamUrl: String? = null
 )
 
 data class SeriesItem(

@@ -277,7 +277,7 @@ class ChannelListActivity : AppCompatActivity() {
         }
         binding.btnRetryMiniPlayer.visibility = View.GONE
         showMiniState("Carregando ${channel.name}…", retryVisible = false)
-        val streamUrl = repository.buildLiveStreamUrl(session, channel.streamId)
+        val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId)
         muted = false
         binding.btnMiniPlayerMute.text = "SOM"
         miniPlayer?.volume = 1f
@@ -337,7 +337,7 @@ class ChannelListActivity : AppCompatActivity() {
 
     private fun toggleGuideReminder(row: GuideProgramRow, alreadyScheduled: Boolean) {
         val session = SessionStore.getSavedSession(this) ?: return
-        val streamUrl = repository.buildLiveStreamUrl(session, row.channel.streamId)
+        val streamUrl = row.channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, row.channel.streamId)
         if (alreadyScheduled) {
             ReminderScheduler.cancel(this, row.channel.streamId, row.listing)
             Toast.makeText(this, "Lembrete cancelado", Toast.LENGTH_SHORT).show()
@@ -355,7 +355,7 @@ class ChannelListActivity : AppCompatActivity() {
     private fun openFullPlayer(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
         startActivity(Intent(this, PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_STREAM_URL, repository.buildLiveStreamUrl(session, channel.streamId))
+            putExtra(PlayerActivity.EXTRA_STREAM_URL, channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId))
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
         })
     }

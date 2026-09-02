@@ -43,6 +43,7 @@ class ChannelListActivity : AppCompatActivity() {
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var subcategoryAdapter: CategorySidebarAdapter
     private lateinit var channelAdapter: ChannelAdapter
+    private lateinit var channelsLayoutManager: GridLayoutManager
     private lateinit var miniGuideAdapter: MiniGuideAdapter
     private var miniPlayer: ExoPlayer? = null
     private var selectedChannel: LiveStream? = null
@@ -107,7 +108,7 @@ class ChannelListActivity : AppCompatActivity() {
             onClick = { channel -> selectChannel(channel) },
             onLongClick = { channel -> openFullPlayer(channel) }
         )
-        binding.rvChannels.layoutManager = GridLayoutManager(this, 2)
+        binding.rvChannels.layoutManager = GridLayoutManager(this, 2).also { channelsLayoutManager = it }
         binding.rvChannels.adapter = channelAdapter
 
         binding.btnOpenFullPlayer.setOnClickListener {
@@ -271,6 +272,11 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     private fun displayChannels(channels: List<LiveStream>, categoryName: String) {
+        // Grupo pequeno (as opções de link/qualidade de UM canal, ex:
+        // "HBO FHD¹/FHD²/HD...") fica mais claro como lista vertical, uma
+        // embaixo da outra -- categoria grande com muitos canais
+        // diferentes continua em grade (melhor pra navegar/rolar).
+        channelsLayoutManager.spanCount = if (channels.size in 1..10) 1 else 2
         channelAdapter.submitList(channels)
         binding.tvChannelsHeader.text = if (channels.isEmpty()) {
             "$categoryName · nenhum canal encontrado"

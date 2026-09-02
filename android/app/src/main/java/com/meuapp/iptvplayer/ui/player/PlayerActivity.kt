@@ -3,6 +3,7 @@ package com.meuapp.iptvplayer.ui.player
 import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -18,41 +19,70 @@ class PlayerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
+    private var streamUrl: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL) ?: return finish()
-        val channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME) ?: ""
+        streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
+        val channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
+        if (streamUrl.isBlank()) {
+            finish()
+            return
+        }
         binding.tvChannelName.text = channelName
+        binding.btnRetryPlayer.setOnClickListener { initPlayer(streamUrl) }
 
         initPlayer(streamUrl)
     }
 
-    private fun initPlayer(streamUrl: String) {
+    private fun initPlayer(url: String) {
+        player?.release()
+        binding.tvPlaybackError.visibility = View.GONE
+        binding.btnRetryPlayer.visibility = View.GONE
         binding.progressBar.visibility = View.VISIBLE
 
         val exoPlayer = ExoPlayer.Builder(this).build()
         player = exoPlayer
+        exoPlayer.setAudioAttributes(
+            AudioAttributes.Builder().setUsage(1).setContentType(3).build(),
+            true
+        )
+        exoPlayer.setHandleAudioBecomingNoisy(true)
         binding.playerView.player = exoPlayer
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    binding.progressBar.visibility = View.GONE
+                when (state) {
+                    Player.STATE_BUFFERING -> {
+                        binding.progressBar.visibility = View.VISIBLE
+                        binding.tvPlaybackError.visibility = View.GONE
+                    }
+                    Player.STATE_READY -> {
+                        binding.progressBar.visibility = View.GONE
+                        binding.tvPlaybackError.visibility = View.GONE
+                        binding.btnRetryPlayer.visibility = View.GONE
+                    }
+                    Player.STATE_ENDED -> {
+                        binding.progressBar.visibility = View.GONE
+                        binding.tvPlaybackError.text = "Transmissão encerrada"
+                        binding.tvPlaybackError.visibility = View.VISIBLE
+                        binding.btnRetryPlayer.visibility = View.VISIBLE
+                    }
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 binding.progressBar.visibility = View.GONE
-                // TODO: mostrar mensagem de erro amigável / tentar reconectar
+                binding.tvPlaybackError.text = "Não foi possível reproduzir este canal"
+                binding.tvPlaybackError.visibility = View.VISIBLE
+                binding.btnRetryPlayer.visibility = View.VISIBLE
             }
         })
 
-        val mediaItem = MediaItem.fromUri(streamUrl)
-        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.setMediaItem(MediaItem.fromUri(url))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
     }

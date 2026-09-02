@@ -18,6 +18,28 @@
         android:layout_gravity="center" />
 
     <TextView
+        android:id="@+id/tvPlaybackError"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginBottom="60dp"
+        android:gravity="center"
+        android:paddingHorizontal="24dp"
+        android:text="Não foi possível reproduzir este canal"
+        android:textColor="@android:color/white"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/btnRetryPlayer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:text="RECARREGAR"
+        android:textAllCaps="false"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/tvChannelName"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

@@ -93,7 +93,11 @@ class ChannelListActivity : AppCompatActivity() {
         sidebarAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
             barColorHex = AppearancePrefs.getCategoryBarColor(this)
-        ) { category -> loadChannels(category.categoryId, category.categoryName) }
+        ) { category ->
+            com.meuapp.iptvplayer.util.AdultContentGuard.guardCategorySelection(this, category) {
+                loadChannels(category.categoryId, category.categoryName)
+            }
+        }
         binding.rvSidebar.layoutManager = LinearLayoutManager(this)
         binding.rvSidebar.adapter = sidebarAdapter
         binding.rvSidebar.visibility = if (AppearancePrefs.isCategoryBarEnabled(this)) View.VISIBLE else View.GONE
@@ -158,7 +162,7 @@ class ChannelListActivity : AppCompatActivity() {
                 ?: session
             repository.getLiveCategories(activeSession)
                 .onSuccess { categories ->
-                    sidebarAdapter.submitList(categories)
+                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories))
                     if (categories.isEmpty()) {
                         showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
                     }
@@ -257,6 +261,8 @@ class ChannelListActivity : AppCompatActivity() {
      * verdade) usam o guia XMLTV referenciado na própria playlist. */
     private fun loadMiniGuide(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
+        binding.rvMiniGuide.visibility = View.VISIBLE
+        binding.tvMiniGuideEmpty.visibility = View.GONE
         lifecycleScope.launch {
             if (channel.directStreamUrl != null) {
                 repository.getEpgFromPlaylist(session, channel.epgChannelId)
@@ -272,26 +278,21 @@ class ChannelListActivity : AppCompatActivity() {
                                 stopTimestamp = p.stopMillis / 1000
                             )
                         }
-                        miniGuideAdapter.submitList(listings)
-                        binding.rvMiniGuide.visibility = if (listings.isEmpty()) View.GONE else View.VISIBLE
+                        showMiniGuideResult(listings)
                     }
-                    .onFailure {
-                        miniGuideAdapter.submitList(emptyList())
-                        binding.rvMiniGuide.visibility = View.GONE
-                    }
+                    .onFailure { showMiniGuideResult(emptyList()) }
                 return@launch
             }
             repository.getShortEpg(session, channel.streamId)
-                .onSuccess { response ->
-                    val listings = response.listings.orEmpty()
-                    miniGuideAdapter.submitList(listings)
-                    binding.rvMiniGuide.visibility = if (listings.isEmpty()) View.GONE else View.VISIBLE
-                }
-                .onFailure {
-                    miniGuideAdapter.submitList(emptyList())
-                    binding.rvMiniGuide.visibility = View.GONE
-                }
+                .onSuccess { response -> showMiniGuideResult(response.listings.orEmpty()) }
+                .onFailure { showMiniGuideResult(emptyList()) }
         }
+    }
+
+    private fun showMiniGuideResult(listings: List<com.meuapp.iptvplayer.data.model.EpgListing>) {
+        miniGuideAdapter.submitList(listings)
+        binding.rvMiniGuide.visibility = if (listings.isEmpty()) View.GONE else View.VISIBLE
+        binding.tvMiniGuideEmpty.visibility = if (listings.isEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun openFullPlayer(channel: LiveStream) {

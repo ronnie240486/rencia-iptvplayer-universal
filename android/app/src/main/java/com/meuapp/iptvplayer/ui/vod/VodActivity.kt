@@ -74,53 +74,10 @@ class VodActivity : AppCompatActivity() {
         loadCategories()
     }
 
-    /** Detecta categorias de conteúdo adulto pelo nome (ignora acentos e
-     * maiúsculas/minúsculas) -- essas ficam escondidas no fim da lista, não
-     * misturadas com o resto, e só abrem com PIN se o usuário tiver
-     * configurado um em Ajustes > Controle parental. */
-    private fun isAdultCategory(name: String): Boolean {
-        val normalized = Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD)
-            .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
-        val keywords = listOf("adulto", "adult", "+18", "18+", "xxx", "erotic", "erotico", "sexo", "hot", "porn")
-        return keywords.any { normalized.contains(it) }
-    }
-
-    private fun sortWithAdultLast(categories: List<Category>): List<Category> {
-        val (adult, normal) = categories.partition { isAdultCategory(it.categoryName) }
-        return normal.sortedBy { it.categoryName.lowercase() } + adult.sortedBy { it.categoryName.lowercase() }
-    }
-
     private fun onCategorySelected(category: Category) {
-        if (isAdultCategory(category.categoryName)) {
-            val savedPin = getSharedPreferences("supremus_settings", MODE_PRIVATE).getString("parental_pin", null)
-            if (!savedPin.isNullOrBlank()) {
-                askPinAndProceed(savedPin, category)
-                return
-            }
+        com.meuapp.iptvplayer.util.AdultContentGuard.guardCategorySelection(this, category) {
+            loadMovies(category.categoryId, category.categoryName)
         }
-        loadMovies(category.categoryId, category.categoryName)
-    }
-
-    private fun askPinAndProceed(savedPin: String, category: Category) {
-        val input = EditText(this).apply {
-            hint = "PIN com 4 dígitos"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            maxLines = 1
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Conteúdo adulto")
-            .setMessage("Digite o PIN do controle parental para continuar.")
-            .setView(input)
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Entrar") { _, _ ->
-                val typed = input.text.toString().filter { it.isDigit() }
-                if (typed == savedPin) {
-                    loadMovies(category.categoryId, category.categoryName)
-                } else {
-                    Toast.makeText(this, "PIN incorreto", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .show()
     }
 
     private fun loadCategories() {
@@ -132,7 +89,7 @@ class VodActivity : AppCompatActivity() {
                 ?.also { SessionStore.saveSession(this@VodActivity, it) }
                 ?: session
             repository.getVodCategories(activeSession)
-                .onSuccess { categories -> categoryAdapter.submitList(sortWithAdultLast(categories)) }
+                .onSuccess { categories -> categoryAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories)) }
                 .onFailure {
                     binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
                     showError("Não foi possível carregar as categorias de filmes")

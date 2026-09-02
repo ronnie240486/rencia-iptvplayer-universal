@@ -6,13 +6,16 @@
 
     <ImageView
         android:id="@+id/ivBackgroundCrest"
-        android:layout_width="520dp"
-        android:layout_height="520dp"
-        android:layout_gravity="center"
-        android:alpha="0.06"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:contentDescription="@null"
-        android:scaleType="centerInside"
-        android:src="@drawable/home_crest_recreated" />
+        android:scaleType="centerCrop"
+        android:src="@drawable/home_background_enriched_no_crest" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#B3070809" />
 
     <ScrollView
         android:layout_width="match_parent"
@@ -111,34 +114,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
                 android:background="@drawable/bg_tile"
-                android:gravity="center_horizontal"
                 android:orientation="vertical"
-                android:padding="24dp"
+                android:padding="18dp"
                 android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/tvLoadingPercent"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0%"
-                    android:textColor="@color/accent"
-                    android:textSize="44sp"
-                    android:textStyle="bold" />
-
-                <ProgressBar
-                    android:id="@+id/progressLoading"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="14dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressTint="@color/accent" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal">
 
@@ -149,18 +131,38 @@
                         android:layout_weight="1"
                         android:text="Baixando lista completa…"
                         android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                        android:textSize="12.5sp" />
+
+                    <TextView
+                        android:id="@+id/tvLoadingPercent"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="0%"
+                        android:textColor="@color/accent"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/tvLoadingTimer"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
                         android:fontFamily="monospace"
                         android:text="00:00"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="12sp" />
                 </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/progressLoading"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="10dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/accent" />
             </LinearLayout>
 
             <ProgressBar

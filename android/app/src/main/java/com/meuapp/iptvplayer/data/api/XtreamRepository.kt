@@ -33,6 +33,19 @@ data class Session(
 
 class XtreamRepository {
 
+    // Companion object -- essas caches precisam ser COMPARTILHADAS entre
+    // todas as telas do app, não por instância. Antes, cada tela
+    // (LoginActivity, ChannelListActivity, VodActivity, SeriesActivity...)
+    // criava seu próprio "XtreamRepository()" com seu próprio cache vazio
+    // -- então a lista baixada com tanto cuidado (barra de progresso) na
+    // tela do MAC era jogada fora assim que o usuário saía dali, e cada
+    // tela seguinte baixava tudo de novo do zero. Por isso demorava tanto
+    // pra abrir canais/filmes mesmo "depois de já ter carregado".
+    companion object {
+        private val m3uCache = mutableMapOf<String, List<M3uParser.ParsedChannel>>()
+        private val m3uSeriesLookup = mutableMapOf<Int, Pair<String, String>>() // seriesId -> (categoria, nome)
+    }
+
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
     // jeito que confunde negociacao HTTP/2 e faz o OkHttp achar que o corpo
     // foi cortado no meio ("unexpected end of stream") mesmo quando o
@@ -124,16 +137,6 @@ class XtreamRepository {
     } catch (e: Exception) {
         error("A resposta do servidor não é um JSON válido (início: \"${body.take(120)}\").")
     }
-
-    // Cache em memória da playlist M3U já baixada e interpretada (evita
-    // baixar/reprocessar a lista inteira de novo a cada categoria que o
-    // usuário clica).
-    private val m3uCache = mutableMapOf<String, List<M3uParser.ParsedChannel>>()
-
-    // Cache das séries montadas a partir de M3U, pra "lembrar" categoria +
-    // nome da série a partir do ID fake quando o usuário abre os episódios
-    // (getSeriesInfo só recebe o ID, não a categoria).
-    private val m3uSeriesLookup = mutableMapOf<Int, Pair<String, String>>() // seriesId -> (categoria, nome)
 
     /** Baixa a playlist M3U completa reportando o progresso de verdade
      * (bytes já baixados / total), usado na tela de ativação por MAC pra

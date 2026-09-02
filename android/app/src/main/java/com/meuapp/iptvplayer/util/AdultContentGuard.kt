@@ -2,11 +2,13 @@ package com.meuapp.iptvplayer.util
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.text.InputType
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import com.meuapp.iptvplayer.data.model.Category
+import com.meuapp.iptvplayer.ui.settings.SettingsActivity
 import java.text.Normalizer
 
 /** Detecta categorias de conteúdo adulto (Live TV e Filmes) e protege elas
@@ -29,9 +31,10 @@ object AdultContentGuard {
         return normal.sortedBy { it.categoryName.lowercase() } + adult.sortedBy { it.categoryName.lowercase() }
     }
 
-    /** Se a categoria é adulta E o usuário tem um PIN configurado, pede o
-     * PIN antes de continuar. Categoria normal, ou adulta sem PIN
-     * configurado, passa direto. */
+    /** Se a categoria é adulta, SEMPRE pede o PIN antes de continuar --
+     * mesmo se ainda não existe um PIN configurado (nesse caso, manda o
+     * usuário criar um em Ajustes primeiro, em vez de liberar o conteúdo
+     * sem proteção nenhuma). Categoria normal passa direto. */
     fun guardCategorySelection(activity: Activity, category: Category, onAllowed: () -> Unit) {
         if (!isAdultCategory(category.categoryName)) {
             onAllowed()
@@ -40,7 +43,14 @@ object AdultContentGuard {
         val savedPin = activity.getSharedPreferences("supremus_settings", Context.MODE_PRIVATE)
             .getString("parental_pin", null)
         if (savedPin.isNullOrBlank()) {
-            onAllowed()
+            AlertDialog.Builder(activity)
+                .setTitle("Conteúdo adulto")
+                .setMessage("Você ainda não configurou um PIN de controle parental. Configure um em Ajustes para poder acessar este conteúdo.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Ir para Ajustes") { _, _ ->
+                    activity.startActivity(Intent(activity, SettingsActivity::class.java))
+                }
+                .show()
             return
         }
         val input = EditText(activity).apply {

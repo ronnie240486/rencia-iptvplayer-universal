@@ -186,9 +186,7 @@ class HomeActivity : AppCompatActivity() {
     private fun dispatchAction(action: String) {
         when (action) {
             "live" -> open(ChannelListActivity::class.java)
-            "epg" -> startActivity(Intent(this, ChannelListActivity::class.java).apply {
-                putExtra(ChannelListActivity.EXTRA_OPEN_EPG, true)
-            })
+            "epg" -> open(ChannelListActivity::class.java)
             "vod" -> open(VodActivity::class.java)
             "series" -> open(SeriesActivity::class.java)
             "account" -> open(AccountActivity::class.java)

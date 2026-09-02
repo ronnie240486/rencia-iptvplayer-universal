@@ -220,14 +220,42 @@ class ChannelListActivity : AppCompatActivity() {
 
     /** Categoria grande demais (ex: "ESPORTES" com 40 canais numerados) --
      * agrupa em sub-categorias por nome, pra não jogar tudo numa lista só. */
+    /** Categoria grande demais (ex: "SPORTV" com muitos links de
+     * backup/qualidade por canal -- "SporTV 2 FHD¹", "SporTV 2 FHD²" etc)
+     * -- agrupa pelo NOME BASE do canal (removendo sufixos de qualidade
+     * tipo FHD¹/HD²/4K/[H265]), pra virar uma linha por canal de verdade
+     * ("SporTV 2"), não uma linha por link. Selecionar essa linha mostra
+     * todas as variantes/links daquele canal na grade principal. */
+    private fun baseChannelName(name: String): String {
+        var result = name.trim()
+        val patterns = listOf(
+            Regex("(?i)\\s*\\[[^\\]]*\\]\\s*$"),
+            Regex("(?i)\\s*(FULLHD|FHD|HD|SD|4K|H\\.?265|H\\.?264)[¹²³⁴⁵⁶⁷⁸⁹⁰0-9]*\\s*$")
+        )
+        var changed = true
+        while (changed) {
+            changed = false
+            for (pattern in patterns) {
+                val stripped = result.replace(pattern, "").trim()
+                if (stripped != result && stripped.isNotBlank()) {
+                    result = stripped
+                    changed = true
+                }
+            }
+        }
+        return result.ifBlank { name.trim() }
+    }
+
     private fun showSubcategories(parentName: String, channels: List<LiveStream>) {
         val sorted = channels.sortedWith(compareBy<LiveStream> { it.num }.thenBy { it.name.lowercase() })
         subcategoryGroups.clear()
         val parentLower = parentName.lowercase()
-        val categories = sorted.mapIndexed { index, channel ->
-            val label = channel.name.trim().ifBlank { "$parentName ${channel.num}" }
-            val key = "channel:$parentLower:$index:${channel.streamId}"
-            subcategoryGroups[key] = listOf(channel)
+        val grouped = sorted.groupBy { baseChannelName(it.name) }
+        val categories = grouped.entries.sortedBy { it.key.lowercase() }.mapIndexed { index, entry ->
+            val (baseName, group) = entry
+            val key = "channel:$parentLower:$index"
+            subcategoryGroups[key] = group
+            val label = if (group.size > 1) "$baseName (${group.size} opções)" else baseName
             Category(key, label)
         }.ifEmpty {
             val key = "channel:$parentLower:empty"

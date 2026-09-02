@@ -47,6 +47,7 @@ class ChannelListActivity : AppCompatActivity() {
     private var miniPlayer: ExoPlayer? = null
     private var selectedChannel: LiveStream? = null
     private var muted = false
+    private var loadedCategories: List<Category> = emptyList()
     // Cada painel Xtream organiza os "canais" de um jeito diferente -- em
     // alguns, uma categoria já é granular o bastante; em outros, uma
     // categoria "ESPORTES" esconde 40 canais numerados dentro (ESPN 1, ESPN
@@ -171,6 +172,7 @@ class ChannelListActivity : AppCompatActivity() {
             repository.getLiveCategories(activeSession)
                 .onSuccess { categories ->
                     sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories))
+                    loadedCategories = categories
                     if (categories.isEmpty()) {
                         showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
                     }
@@ -197,6 +199,15 @@ class ChannelListActivity : AppCompatActivity() {
                 .onSuccess { channels ->
                     if (channels.size > 30) {
                         showSubcategories(categoryName, channels)
+                    } else if (channels.isEmpty()) {
+                        // Categoria realmente vazia no provedor -- tira da
+                        // lista lateral em vez de deixar ali "morta",
+                        // confundindo quem for clicar de novo depois.
+                        binding.rvSubcategories.visibility = View.GONE
+                        loadedCategories = loadedCategories.filterNot { it.categoryId == categoryId }
+                        sidebarAdapter.submitList(loadedCategories, autoSelect = false)
+                        displayChannels(channels, categoryName)
+                        showError("\"$categoryName\" está vazia no provedor -- removida da lista.")
                     } else {
                         binding.rvSubcategories.visibility = View.GONE
                         displayChannels(channels, categoryName)

@@ -1,6 +1,8 @@
 package com.meuapp.iptvplayer.ui.channels
 
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
@@ -13,11 +15,6 @@ class ChannelAdapter(
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     private val items = mutableListOf<LiveStream>()
-    // Clique duplo (dois toques/OK rápidos seguidos) também abre tela
-    // cheia -- em TV Box com controle remoto, "pressão longa" nem sempre
-    // funciona bem, então isso serve de alternativa mais confiável.
-    private var lastClickPosition = -1
-    private var lastClickAt = 0L
 
     fun submitList(newItems: List<LiveStream>) {
         items.clear()
@@ -27,33 +24,51 @@ class ChannelAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return ViewHolder(binding)
+        val holder = ViewHolder(binding)
+
+        // GestureDetector nativo do Android -- mais confiável que contar
+        // milissegundos na mão pra detectar clique duplo (que tinha ficado
+        // sem efeito no celular). onDoubleTap abre tela cheia, um toque só
+        // seleciona o canal no mini player. Lê o canal ATUAL do holder
+        // (não uma variável "presa" de quando o listener foi criado), pra
+        // funcionar certo mesmo com reciclagem de views do RecyclerView.
+        val gestureDetector = GestureDetector(parent.context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                holder.channel?.let { onClick(it) }
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                holder.channel?.let { onLongClick(it) }
+                return true
+            }
+        })
+        binding.root.setOnTouchListener { view, event ->
+            gestureDetector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP) view.performClick()
+            true
+        }
+        // Mantém pressão longa como alternativa também (ex: quem já tinha
+        // esse hábito, ou controles remotos que mandam long-press).
+        binding.root.setOnLongClickListener {
+            holder.channel?.let { onLongClick(it) }
+            true
+        }
+        return holder
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = items[position]
+        holder.channel = channel
         holder.binding.tvChannelName.text = channel.name
         holder.binding.ivIcon.load(channel.streamIcon) {
             crossfade(true)
-        }
-        holder.binding.root.setOnClickListener {
-            val now = System.currentTimeMillis()
-            if (lastClickPosition == position && now - lastClickAt < 400) {
-                lastClickPosition = -1
-                onLongClick(channel)
-            } else {
-                lastClickPosition = position
-                lastClickAt = now
-                onClick(channel)
-            }
-        }
-        holder.binding.root.setOnLongClickListener {
-            onLongClick(channel)
-            true
         }
     }
 
     override fun getItemCount() = items.size
 
-    class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root)
+    class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
+        var channel: LiveStream? = null
+    }
 }

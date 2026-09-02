@@ -3,6 +3,7 @@ package com.meuapp.iptvplayer.data.api
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
+import com.google.gson.reflect.TypeToken
 import com.meuapp.iptvplayer.data.model.AuthResponse
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -13,7 +14,6 @@ import com.meuapp.iptvplayer.data.model.VodStream
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 /** Dados de sessão do usuário logado, guardados em memória/DataStore. */
@@ -47,10 +47,9 @@ class XtreamRepository {
     // como texto ("5") e às vezes como número puro (5), dependendo do
     // software do painel. Com Gson padrão, se o app espera String e o
     // painel manda número (ou vice-versa), a conversão da lista INTEIRA
-    // falha silenciosamente -- é a causa mais provável de "categoria de
-    // canal não aparece" em algum provedor específico. Esses adapters
-    // aceitam qualquer um dos dois formatos.
-    private fun buildGson(): Gson = GsonBuilder()
+    // falha silenciosamente. Esses adapters aceitam qualquer um dos dois
+    // formatos.
+    private val gson: Gson = GsonBuilder()
         .registerTypeAdapter(String::class.java, JsonDeserializer { json, _, _ ->
             if (json == null || json.isJsonNull) null
             else runCatching { json.asJsonPrimitive.asString }.getOrNull()
@@ -68,19 +67,47 @@ class XtreamRepository {
     private val api: XtreamApiService = Retrofit.Builder()
         .baseUrl("http://localhost/") // sobrescrito por @Url em cada chamada
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create(buildGson()))
         .build()
         .create(XtreamApiService::class.java)
 
     private fun normalizeBase(serverUrl: String): String =
         serverUrl.trimEnd('/')
 
+    /** Busca a URL e devolve o corpo CRU já validado -- não deixa o Retrofit
+     * tentar converter pra Gson sozinho (isso escondia o erro real atrás de
+     * uma mensagem genérica tipo "unexpected end of stream" sempre que o
+     * corpo vinha vazio ou diferente do esperado). Com isso, qualquer
+     * problema (servidor fora do ar, usuário/senha errados, resposta que
+     * não é JSON) aparece com uma mensagem que mostra o que aconteceu de
+     * verdade. */
+    private suspend fun fetchBody(url: String): String {
+        val response = api.call(url)
+        if (!response.isSuccessful) {
+            error("O servidor respondeu com erro HTTP ${response.code()} para esta chamada.")
+        }
+        val body = response.body()?.string()?.trim().orEmpty()
+        if (body.isEmpty()) {
+            error("O servidor respondeu vazio. Confira se o usuário/senha/servidor da playlist estão corretos.")
+        }
+        return body
+    }
+
+    private inline fun <reified T> parseJson(body: String): T = try {
+        gson.fromJson(body, T::class.java)
+    } catch (e: Exception) {
+        error("A resposta do servidor não é um JSON válido (início: \"${body.take(120)}\").")
+    }
+
+    private fun <T> parseJsonList(body: String, type: java.lang.reflect.Type): T = try {
+        gson.fromJson(body, type)
+    } catch (e: Exception) {
+        error("A resposta do servidor não é um JSON válido (início: \"${body.take(120)}\").")
+    }
+
     suspend fun login(session: Session): Result<AuthResponse> = runCatching {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}"
-        val response = api.authenticate(url)
-        if (!response.isSuccessful) error("HTTP ${response.code()}")
-        val body = response.body() ?: error("Resposta vazia do servidor")
+        val body: AuthResponse = parseJson(fetchBody(url))
         if (body.userInfo?.auth != 1) error("Usuário ou senha inválidos")
         body
     }
@@ -89,14 +116,8 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_live_categories"
-        val response = api.getLiveCategories(url)
-        // Antes, se o servidor respondesse com erro HTTP (ou corpo nulo por
-        // qualquer motivo), isso virava silenciosamente "sucesso com 0
-        // categorias" -- a tela ficava vazia sem nenhum aviso de erro,
-        // parecendo que o provedor simplesmente não tinha categoria
-        // nenhuma. Agora um erro de verdade aparece como erro de verdade.
-        if (!response.isSuccessful) error("HTTP ${response.code()} ao buscar categorias")
-        val categories = response.body() ?: error("Resposta vazia do servidor ao buscar categorias")
+        val type = object : TypeToken<List<Category>>() {}.type
+        val categories: List<Category> = parseJsonList(fetchBody(url), type)
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
@@ -105,16 +126,15 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_live_streams$catParam"
-        val response = api.getLiveStreams(url)
-        response.body() ?: emptyList()
+        val type = object : TypeToken<List<LiveStream>>() {}.type
+        parseJsonList(fetchBody(url), type)
     }
 
     suspend fun getShortEpg(session: Session, streamId: Int): Result<ShortEpgResponse> = runCatching {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_short_epg&stream_id=$streamId&limit=20"
-        val response = api.getShortEpg(url)
-        response.body() ?: ShortEpgResponse(emptyList())
+        parseJson<ShortEpgResponse>(fetchBody(url))
     }
 
     /** Monta a URL de stream ao vivo (formato padrão Xtream: .../live/user/pass/id.m3u8) */
@@ -127,7 +147,9 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_vod_categories"
-        api.getVodCategories(url).body() ?: emptyList()
+        val type = object : TypeToken<List<Category>>() {}.type
+        val categories: List<Category> = parseJsonList(fetchBody(url), type)
+        categories.sortedBy { it.categoryName.lowercase() }
     }
 
     suspend fun getVodStreams(session: Session, categoryId: String?): Result<List<VodStream>> = runCatching {
@@ -135,7 +157,8 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_vod_streams$catParam"
-        api.getVodStreams(url).body() ?: emptyList()
+        val type = object : TypeToken<List<VodStream>>() {}.type
+        parseJsonList(fetchBody(url), type)
     }
 
     /** Monta a URL de reprodução de um filme (VOD). */
@@ -149,7 +172,9 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_series_categories"
-        api.getSeriesCategories(url).body() ?: emptyList()
+        val type = object : TypeToken<List<Category>>() {}.type
+        val categories: List<Category> = parseJsonList(fetchBody(url), type)
+        categories.sortedBy { it.categoryName.lowercase() }
     }
 
     suspend fun getSeries(session: Session, categoryId: String?): Result<List<SeriesItem>> = runCatching {
@@ -157,16 +182,15 @@ class XtreamRepository {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_series$catParam"
-        api.getSeries(url).body() ?: emptyList()
+        val type = object : TypeToken<List<SeriesItem>>() {}.type
+        parseJsonList(fetchBody(url), type)
     }
 
     suspend fun getSeriesInfo(session: Session, seriesId: Int): Result<SeriesInfoResponse> = runCatching {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +
                 "&action=get_series_info&series_id=$seriesId"
-        val response = api.getSeriesInfo(url)
-        if (!response.isSuccessful) error("Não foi possível carregar os episódios")
-        response.body() ?: error("Detalhes da série vazios")
+        parseJson<SeriesInfoResponse>(fetchBody(url))
     }
 
     fun buildSeriesStreamUrl(

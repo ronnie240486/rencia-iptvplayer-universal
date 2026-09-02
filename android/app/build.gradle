@@ -15,8 +15,30 @@ android {
         versionName '1.0'
     }
 
+    // Chave de assinatura FIXA (arquivo debug.keystore versionado no repo),
+    // em vez de deixar o Gradle usar a padrao gerada automaticamente --
+    // isso e essencial porque cada build no GitHub Actions roda numa maquina
+    // nova, e a chave padrao do Gradle e gerada aleatoriamente na primeira
+    // vez que falta o arquivo. Sem uma chave fixa, cada build tinha uma
+    // assinatura diferente, o que faz o Android recusar instalar por cima
+    // do anterior (precisa desinstalar sempre). Como bonus, o MAC do
+    // aparelho (derivado do ANDROID_ID, que muda quando a chave de
+    // assinatura muda) tambem passa a ficar estavel entre atualizacoes.
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
+            signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

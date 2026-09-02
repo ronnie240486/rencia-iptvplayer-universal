@@ -23,7 +23,6 @@ class SeriesActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySeriesBinding
     private val repository = XtreamRepository()
     private val renciaRepository = RenciaRepository()
-    private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: SeriesAdapter
     private var selectedPosterUrl: String? = null

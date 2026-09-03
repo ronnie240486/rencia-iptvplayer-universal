@@ -12,174 +12,177 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvSidebar"
-            android:layout_width="168dp"
-            android:layout_height="match_parent"
-            android:background="@color/sidebar_bg"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp" />
+        <include
+            android:id="@+id/toolbar"
+            layout="@layout/toolbar_content" />
 
+        <!-- Três colunas lado a lado, sem empilhar: categoria, lista
+        completa de canais (altura total, sem precisar rolar pra achar) e
+        o player à direita. -->
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="horizontal">
 
-            <include
-                android:id="@+id/toolbar"
-                layout="@layout/toolbar_content" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvSidebar"
+                android:layout_width="150dp"
+                android:layout_height="match_parent"
+                android:background="@color/sidebar_bg"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp" />
 
-            <FrameLayout
-                android:id="@+id/miniPlayerPanel"
-                android:layout_width="match_parent"
-                android:layout_height="230dp"
-                android:layout_marginHorizontal="12dp"
-                android:background="@drawable/bg_tile"
-                android:clipToPadding="false">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-                <androidx.media3.ui.PlayerView
-                    android:id="@+id/miniPlayer"
+                <TextView
+                    android:id="@+id/tvChannelsHeader"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:keepScreenOn="true"
-                    app:resize_mode="fit"
-                    app:show_buffering="when_playing"
-                    app:use_controller="true" />
-
-                <TextView
-                    android:id="@+id/tvSelectedChannel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="top|start"
-                    android:layout_margin="12dp"
-                    android:background="#AA000000"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="6dp"
-                    android:text="Selecione um canal"
-                    android:textColor="@color/white"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvMiniPlayerState"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|start"
-                    android:layout_margin="12dp"
-                    android:background="#AA000000"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="6dp"
-                    android:text="Pronto"
+                    android:layout_height="38dp"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:text="CANAIS — selecione uma categoria"
                     android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:visibility="gone" />
+                    android:textSize="11sp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvChannels"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:clipToPadding="false"
+                    android:paddingHorizontal="8dp"
+                    android:paddingBottom="8dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingHorizontal="8dp">
+
+                <FrameLayout
+                    android:id="@+id/miniPlayerPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_tile"
+                    android:clipToPadding="false">
+
+                    <androidx.media3.ui.PlayerView
+                        android:id="@+id/miniPlayer"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:keepScreenOn="true"
+                        app:resize_mode="fit"
+                        app:show_buffering="when_playing"
+                        app:use_controller="true" />
+
+                    <TextView
+                        android:id="@+id/tvSelectedChannel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="top|start"
+                        android:layout_margin="12dp"
+                        android:background="#AA000000"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="6dp"
+                        android:text="Selecione um canal"
+                        android:textColor="@color/white"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvMiniPlayerState"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|start"
+                        android:layout_margin="12dp"
+                        android:background="#AA000000"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="6dp"
+                        android:text="Pronto"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/btnMiniPlayerMute"
+                        android:layout_width="52dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="bottom|center_horizontal"
+                        android:layout_marginBottom="10dp"
+                        android:background="@drawable/bg_tile_highlight"
+                        android:gravity="center"
+                        android:paddingHorizontal="8dp"
+                        android:text="SOM"
+                        android:textColor="@color/white"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnRetryMiniPlayer"
+                        android:layout_width="150dp"
+                        android:layout_height="42dp"
+                        android:layout_gravity="bottom|center_horizontal"
+                        android:layout_marginBottom="10dp"
+                        android:text="RECARREGAR"
+                        android:textAllCaps="false"
+                        android:visibility="gone" />
+
+                    <Button
+                        android:id="@+id/btnOpenFullPlayer"
+                        android:layout_width="140dp"
+                        android:layout_height="42dp"
+                        android:layout_gravity="bottom|end"
+                        android:layout_margin="10dp"
+                        android:text="TELA CHEIA"
+                        android:textAllCaps="false" />
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/btnMiniPlayerMute"
-                    android:layout_width="52dp"
-                    android:layout_height="40dp"
-                    android:layout_gravity="bottom|center_horizontal"
-                    android:layout_marginBottom="10dp"
-                    android:background="@drawable/bg_tile_highlight"
-                    android:gravity="center"
-                    android:paddingHorizontal="8dp"
-                    android:text="SOM"
-                    android:textColor="@color/white"
+                    android:id="@+id/tvMiniGuideLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="PROGRAMAÇÃO"
+                    android:textColor="@color/text_secondary"
                     android:textSize="11sp"
                     android:textStyle="bold" />
 
-                <Button
-                    android:id="@+id/btnRetryMiniPlayer"
-                    android:layout_width="150dp"
-                    android:layout_height="42dp"
-                    android:layout_gravity="bottom|center_horizontal"
-                    android:layout_marginBottom="10dp"
-                    android:text="RECARREGAR"
-                    android:textAllCaps="false"
-                    android:visibility="gone" />
-
-                <Button
-                    android:id="@+id/btnOpenFullPlayer"
-                    android:layout_width="160dp"
-                    android:layout_height="42dp"
-                    android:layout_gravity="bottom|end"
-                    android:layout_margin="10dp"
-                    android:text="TELA CHEIA"
-                    android:textAllCaps="false" />
-            </FrameLayout>
-
-            <TextView
-                android:id="@+id/tvMiniGuideLabel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="12dp"
-                android:layout_marginTop="8dp"
-                android:text="PROGRAMAÇÃO"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvMiniGuide"
-                android:layout_width="match_parent"
-                android:layout_height="76dp"
-                android:layout_marginHorizontal="12dp"
-                android:layout_marginTop="4dp"
-                android:clipToPadding="false"
-                android:orientation="horizontal"
-                android:paddingHorizontal="2dp" />
-
-            <TextView
-                android:id="@+id/tvMiniGuideEmpty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="12dp"
-                android:layout_marginTop="4dp"
-                android:background="@drawable/bg_tile"
-                android:gravity="center"
-                android:padding="14dp"
-                android:text="Esta lista não fornece programação (EPG) para este canal"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                android:visibility="gone" />
-
-            <FrameLayout
-                android:id="@+id/channelsPanel"
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_marginTop="8dp"
-                android:layout_weight="1">
-
-                <LinearLayout
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvMiniGuide"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="vertical">
+                    android:layout_height="76dp"
+                    android:layout_marginTop="4dp"
+                    android:clipToPadding="false"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="2dp" />
 
-                    <TextView
-                        android:id="@+id/tvChannelsHeader"
-                        android:layout_width="match_parent"
-                        android:layout_height="38dp"
-                        android:gravity="center_vertical"
-                        android:paddingHorizontal="16dp"
-                        android:text="CANAIS — selecione uma categoria"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp" />
-
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/rvChannels"
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
-                        android:clipToPadding="false"
-                        android:paddingHorizontal="12dp"
-                        android:paddingBottom="8dp" />
-                </LinearLayout>
-            </FrameLayout>
+                <TextView
+                    android:id="@+id/tvMiniGuideEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp"
+                    android:background="@drawable/bg_tile"
+                    android:gravity="center"
+                    android:padding="14dp"
+                    android:text="Esta lista não fornece programação (EPG) para este canal"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

@@ -18,7 +18,7 @@ class EpgActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityEpgBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val adapter = EpgAdapter()
 
     override fun onCreate(savedInstanceState: Bundle?) {

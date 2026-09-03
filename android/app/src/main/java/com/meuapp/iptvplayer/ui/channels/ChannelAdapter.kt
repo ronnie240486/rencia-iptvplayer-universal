@@ -1,6 +1,7 @@
 package com.meuapp.iptvplayer.ui.channels
 
 import android.view.GestureDetector
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -27,11 +28,12 @@ class ChannelAdapter(
         val holder = ViewHolder(binding)
 
         // GestureDetector nativo do Android -- mais confiável que contar
-        // milissegundos na mão pra detectar clique duplo (que tinha ficado
-        // sem efeito no celular). onDoubleTap abre tela cheia, um toque só
-        // seleciona o canal no mini player. Lê o canal ATUAL do holder
-        // (não uma variável "presa" de quando o listener foi criado), pra
-        // funcionar certo mesmo com reciclagem de views do RecyclerView.
+        // milissegundos na mão pra detectar clique duplo por TOQUE (que
+        // tinha ficado sem efeito no celular). onDoubleTap abre tela
+        // cheia, um toque só seleciona o canal no mini player. Lê o canal
+        // ATUAL do holder (não uma variável "presa" de quando o listener
+        // foi criado), pra funcionar certo mesmo com reciclagem de views
+        // do RecyclerView.
         val gestureDetector = GestureDetector(parent.context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 holder.channel?.let { onClick(it) }
@@ -54,6 +56,24 @@ class ChannelAdapter(
             holder.channel?.let { onLongClick(it) }
             true
         }
+        // Controle remoto de TV Box manda um EVENTO DE TECLA (OK/Enter),
+        // não um toque na tela -- o GestureDetector acima NUNCA recebe
+        // esses eventos, então clique duplo com o controle não funcionava.
+        // Detecta duas confirmações (OK/Enter/DPAD_CENTER) seguidas dentro
+        // de meio segundo como "clique duplo" também.
+        binding.root.setOnKeyListener { _, keyCode, event ->
+            val isConfirmKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+            if (!isConfirmKey || event.action != KeyEvent.ACTION_UP) return@setOnKeyListener false
+            val now = System.currentTimeMillis()
+            if (now - holder.lastKeyConfirmAt < 500) {
+                holder.lastKeyConfirmAt = 0L
+                holder.channel?.let { onLongClick(it) }
+            } else {
+                holder.lastKeyConfirmAt = now
+                holder.channel?.let { onClick(it) }
+            }
+            true
+        }
         return holder
     }
 
@@ -70,5 +90,6 @@ class ChannelAdapter(
 
     class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
         var channel: LiveStream? = null
+        var lastKeyConfirmAt = 0L
     }
 }

@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 class SeriesActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySeriesBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: SeriesAdapter

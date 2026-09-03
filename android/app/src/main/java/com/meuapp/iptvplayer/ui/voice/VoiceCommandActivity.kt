@@ -31,7 +31,7 @@ class VoiceCommandActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityVoiceCommandBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private var speechRecognizer: SpeechRecognizer? = null
     private var session: Session? = null
     private var channels: List<LiveStream> = emptyList()

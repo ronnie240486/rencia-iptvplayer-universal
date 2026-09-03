@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 class MultiScreenActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMultiScreenBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val players = arrayOfNulls<ExoPlayer>(4)
     private lateinit var playerViews: Array<PlayerView>
     private lateinit var nameLabels: Array<TextView>

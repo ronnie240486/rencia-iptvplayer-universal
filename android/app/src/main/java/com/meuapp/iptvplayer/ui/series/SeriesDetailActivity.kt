@@ -30,7 +30,7 @@ class SeriesDetailActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivitySeriesDetailBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val tmdbRepository = com.meuapp.iptvplayer.data.api.TmdbRepository()
     private lateinit var episodeAdapter: EpisodeAdapter
     private var detail: SeriesInfoResponse? = null

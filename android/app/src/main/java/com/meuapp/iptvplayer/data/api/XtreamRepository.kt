@@ -1,5 +1,6 @@
 package com.meuapp.iptvplayer.data.api
 
+import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
@@ -14,6 +15,7 @@ import com.meuapp.iptvplayer.data.model.VodStream
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /** Dados de sessão do usuário logado, guardados em memória/DataStore. */
@@ -31,7 +33,7 @@ data class Session(
     val playlistUrl: String? = null
 )
 
-class XtreamRepository {
+class XtreamRepository(context: Context? = null) {
 
     // Companion object -- essas caches precisam ser COMPARTILHADAS entre
     // todas as telas do app, não por instância. Antes, cada tela
@@ -48,6 +50,11 @@ class XtreamRepository {
         // (tag url-tvg/x-tvg-url) -- null explícito significa "já procurou
         // e não tem" (evita ficar checando de novo sem necessidade).
         private val epgUrlCache = mutableMapOf<String, String?>() // playlistUrl -> epgUrl
+        // Contexto do app (não da Activity) -- guardado uma vez, usado só
+        // pra ler/escrever o cache em DISCO da playlist M3U, que sobrevive
+        // fechar e abrir o app de novo (o cache em memória acima não
+        // sobrevive, some quando o processo do app é encerrado).
+        private var appContext: Context? = null
         private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
     }
 
@@ -106,6 +113,17 @@ class XtreamRepository {
         .build()
         .create(XtreamApiService::class.java)
 
+    init {
+        if (appContext == null && context != null) {
+            appContext = context.applicationContext
+        }
+    }
+
+    private fun m3uCacheFile(playlistUrl: String): File? {
+        val dir = appContext?.cacheDir ?: return null
+        return File(dir, "m3u_cache_${kotlin.math.abs(playlistUrl.hashCode())}.m3u")
+    }
+
     private fun normalizeBase(serverUrl: String): String =
         serverUrl.trimEnd('/')
 
@@ -156,6 +174,22 @@ class XtreamRepository {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@runCatching
         m3uCache[playlistUrl]?.let { return@runCatching }
 
+        // Já tem em disco de uma sessão anterior (fechou e abriu o app)?
+        // Usa na hora, sem baixar de novo -- é exatamente esse cache que
+        // faz "fechar e abrir não precisar carregar de novo".
+        m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
+            val cachedText = runCatching { file.readText() }.getOrNull()
+            if (!cachedText.isNullOrBlank()) {
+                val cachedParsed = M3uParser.parse(cachedText)
+                if (cachedParsed.isNotEmpty()) {
+                    m3uCache[playlistUrl] = cachedParsed
+                    epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
+                    onProgress(1, 1)
+                    return@runCatching
+                }
+            }
+        }
+
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val request = okhttp3.Request.Builder().url(playlistUrl).build()
             val response = client.newCall(request).execute()
@@ -185,6 +219,7 @@ class XtreamRepository {
             val parsed = M3uParser.parse(text)
             if (parsed.isNotEmpty()) {
                 m3uCache[playlistUrl] = parsed
+                m3uCacheFile(playlistUrl)?.let { file -> runCatching { file.writeText(text) } }
             }
         }
     }
@@ -193,6 +228,23 @@ class XtreamRepository {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
             ?: error("Esta sessão não tem uma playlist M3U para usar.")
         m3uCache[playlistUrl]?.let { return it }
+
+        // Cache em disco (sobrevive fechar e abrir o app de novo) -- só o
+        // cache em memória acima não é suficiente, porque some quando o
+        // processo do app é encerrado (Android mata o app em segundo
+        // plano com frequência).
+        m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
+            val cachedText = runCatching { file.readText() }.getOrNull()
+            if (!cachedText.isNullOrBlank()) {
+                val cachedParsed = M3uParser.parse(cachedText)
+                if (cachedParsed.isNotEmpty()) {
+                    m3uCache[playlistUrl] = cachedParsed
+                    epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
+                    return cachedParsed
+                }
+            }
+        }
+
         val body = fetchBody(playlistUrl)
         epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(body)
         val parsed = M3uParser.parse(body)
@@ -200,6 +252,7 @@ class XtreamRepository {
             error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
         }
         m3uCache[playlistUrl] = parsed
+        m3uCacheFile(playlistUrl)?.let { file -> runCatching { file.writeText(body) } }
         return parsed
     }
 

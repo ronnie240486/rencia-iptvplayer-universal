@@ -38,7 +38,7 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityChannelListBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var channelAdapter: ChannelAdapter

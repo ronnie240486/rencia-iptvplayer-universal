@@ -25,7 +25,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityPlayerBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private var player: ExoPlayer? = null
     private var streamUrl: String = ""
 

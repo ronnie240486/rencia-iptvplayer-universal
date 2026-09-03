@@ -39,7 +39,7 @@ class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
     private val renciaRepository = RenciaRepository()
-    private val xtreamRepository = XtreamRepository()
+    private val xtreamRepository by lazy { XtreamRepository(this) }
     private val retryHandler = Handler(Looper.getMainLooper())
     private val timerHandler = Handler(Looper.getMainLooper())
     private var activationInProgress = false

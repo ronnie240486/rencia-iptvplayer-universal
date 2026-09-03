@@ -28,7 +28,7 @@ import java.text.Normalizer
 class VodActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityVodBinding
-    private val repository = XtreamRepository()
+    private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
     private lateinit var categoryAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: VodAdapter

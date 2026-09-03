@@ -45,29 +45,45 @@ object M3uParser {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
 
+        // Passagem 1: descobre TODOS os nomes de grupo usados no arquivo
+        // primeiro, pra decidir o nome canônico de cada um antes de montar
+        // os canais -- precisa ser em duas passagens porque, se "COMBATE
+        // HD" aparece antes de "COMBATE" no arquivo, só dá pra saber que
+        // "COMBATE" (mais curto) devia ser o nome final depois de ver o
+        // arquivo inteiro.
+        val rawGroupTitles = lines
+            .filter { it.startsWith("#EXTINF", ignoreCase = true) }
+            .map { extractAttribute(it, "group-title") ?: "Geral" }
+        val canonicalByKey = mutableMapOf<String, String>() // chave normalizada -> rótulo final
+        for (raw in rawGroupTitles) {
+            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
+            // Junta tanto variações de escrita (espaço extra, maiúscula
+            // diferente) quanto variações que só mudam a qualidade
+            // (ex: "COMBATE", "COMBATE HD", "Combate FHD" viram uma
+            // categoria só) -- sem isso, cada variação virava uma
+            // categoria "duplicada", cada uma com só uma fração dos canais
+            // (por isso "COMBATE" podia mostrar só 1 canal, enquanto os
+            // outros ficavam escondidos numa "COMBATE HD" à parte).
+            val key = stripQualitySuffix(trimmed).lowercase()
+            val existing = canonicalByKey[key]
+            if (existing == null || trimmed.length < existing.length) {
+                canonicalByKey[key] = trimmed
+            }
+        }
+        fun canonicalGroup(raw: String): String {
+            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
+            val key = stripQualitySuffix(trimmed).lowercase()
+            return canonicalByKey[key] ?: trimmed
+        }
+
+        // Passagem 2: monta os canais de verdade, já usando o nome
+        // canônico de grupo decidido acima.
         val result = mutableListOf<ParsedChannel>()
         var pendingGroup: String? = null
         var pendingName: String? = null
         var pendingLogo: String? = null
         var pendingTvgId: String? = null
         var anonymousCounter = 0
-
-        // Algumas playlists escrevem o MESMO grupo de jeitos ligeiramente
-        // diferentes ao longo do arquivo (ex: "ESPORTE", "Esporte",
-        // "ESPORTE " com espaço a mais) -- sem juntar isso, cada variação
-        // virava uma categoria "duplicada" na lista, cada uma com só uma
-        // fração dos canais (por isso uma categoria "ESPORTE" podia
-        // mostrar só 1 canal, enquanto os outros ficavam escondidos numa
-        // outra "ESPORTE" quase igual). Essa tabela junta tudo que
-        // normaliza pro mesmo texto (sem espaços extras, sem diferença de
-        // maiúscula/minúscula) num único nome canônico -- o primeiro jeito
-        // que apareceu no arquivo.
-        val canonicalGroupNames = mutableMapOf<String, String>()
-        fun canonicalGroup(raw: String): String {
-            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
-            val key = trimmed.lowercase()
-            return canonicalGroupNames.getOrPut(key) { trimmed }
-        }
 
         for (line in lines) {
             when {
@@ -106,6 +122,31 @@ object M3uParser {
             }
         }
         return result
+    }
+
+    private val qualitySuffixPatterns = listOf(
+        Regex("(?i)\\s*\\[[^\\]]*\\]\\s*$"),
+        Regex("(?i)\\s*(FULLHD|FHD|HD|SD|4K|H\\.?265|H\\.?264)[¹²³⁴⁵⁶⁷⁸⁹⁰0-9]*\\s*$")
+    )
+
+    /** Remove sufixos de qualidade/backup do final de um nome (canal OU
+     * categoria) -- "Combate FHD" -> "Combate", "COMBATE HD" -> "COMBATE".
+     * Usado tanto pra juntar categorias que só diferem na qualidade quanto
+     * pra agrupar links de um mesmo canal dentro de uma categoria grande. */
+    private fun stripQualitySuffix(name: String): String {
+        var result = name.trim()
+        var changed = true
+        while (changed) {
+            changed = false
+            for (pattern in qualitySuffixPatterns) {
+                val stripped = result.replace(pattern, "").trim()
+                if (stripped != result && stripped.isNotBlank()) {
+                    result = stripped
+                    changed = true
+                }
+            }
+        }
+        return result.ifBlank { name.trim() }
     }
 
     private fun extractAttribute(line: String, key: String): String? {

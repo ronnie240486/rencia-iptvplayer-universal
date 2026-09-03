@@ -1,9 +1,7 @@
 package com.meuapp.iptvplayer.ui.channels
 
-import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.LayoutInflater
-import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
@@ -27,28 +25,23 @@ class ChannelAdapter(
         val binding = ItemChannelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         val holder = ViewHolder(binding)
 
-        // GestureDetector nativo do Android -- mais confiável que contar
-        // milissegundos na mão pra detectar clique duplo por TOQUE (que
-        // tinha ficado sem efeito no celular). onDoubleTap abre tela
-        // cheia, um toque só seleciona o canal no mini player. Lê o canal
-        // ATUAL do holder (não uma variável "presa" de quando o listener
-        // foi criado), pra funcionar certo mesmo com reciclagem de views
-        // do RecyclerView.
-        val gestureDetector = GestureDetector(parent.context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                holder.channel?.let { onClick(it) }
-                return true
+        // Clique SEMPRE dispara na hora, sem esperar nada -- um
+        // GestureDetector "de verdade" pra distinguir toque simples de
+        // duplo precisa ESPERAR ~300-400ms antes de confirmar que foi um
+        // toque simples (pra saber se não vem um segundo toque logo
+        // depois), e isso deixava a seleção de canal lenta (parecia
+        // precisar de vários cliques pra funcionar). Aqui não: todo toque
+        // já seleciona na hora; se vier um segundo toque rápido (< 400ms),
+        // ADICIONALMENTE abre a tela cheia -- sem atraso nenhum no caso
+        // comum (um toque só).
+        binding.root.setOnClickListener {
+            val now = System.currentTimeMillis()
+            val channel = holder.channel ?: return@setOnClickListener
+            onClick(channel)
+            if (now - holder.lastTapAt < 400) {
+                onLongClick(channel)
             }
-
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                holder.channel?.let { onLongClick(it) }
-                return true
-            }
-        })
-        binding.root.setOnTouchListener { view, event ->
-            gestureDetector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP) view.performClick()
-            true
+            holder.lastTapAt = now
         }
         // Mantém pressão longa como alternativa também (ex: quem já tinha
         // esse hábito, ou controles remotos que mandam long-press).
@@ -57,21 +50,19 @@ class ChannelAdapter(
             true
         }
         // Controle remoto de TV Box manda um EVENTO DE TECLA (OK/Enter),
-        // não um toque na tela -- o GestureDetector acima NUNCA recebe
-        // esses eventos, então clique duplo com o controle não funcionava.
-        // Detecta duas confirmações (OK/Enter/DPAD_CENTER) seguidas dentro
-        // de meio segundo como "clique duplo" também.
+        // não um toque na tela -- detecta duas confirmações seguidas
+        // dentro de meio segundo como "clique duplo" também, do mesmo
+        // jeito sem atraso no primeiro clique.
         binding.root.setOnKeyListener { _, keyCode, event ->
             val isConfirmKey = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
             if (!isConfirmKey || event.action != KeyEvent.ACTION_UP) return@setOnKeyListener false
             val now = System.currentTimeMillis()
+            val channel = holder.channel ?: return@setOnKeyListener true
+            onClick(channel)
             if (now - holder.lastKeyConfirmAt < 500) {
-                holder.lastKeyConfirmAt = 0L
-                holder.channel?.let { onLongClick(it) }
-            } else {
-                holder.lastKeyConfirmAt = now
-                holder.channel?.let { onClick(it) }
+                onLongClick(channel)
             }
+            holder.lastKeyConfirmAt = now
             true
         }
         return holder
@@ -90,6 +81,7 @@ class ChannelAdapter(
 
     class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
         var channel: LiveStream? = null
+        var lastTapAt = 0L
         var lastKeyConfirmAt = 0L
     }
 }

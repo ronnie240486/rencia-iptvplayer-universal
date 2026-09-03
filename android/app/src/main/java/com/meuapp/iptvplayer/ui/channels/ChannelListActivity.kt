@@ -289,6 +289,20 @@ class ChannelListActivity : AppCompatActivity() {
             binding.rvSidebar.visibility = if (enabled) View.VISIBLE else View.GONE
         }
         binding.backdropView.setPoster(selectedChannel?.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
+        // Quando volta de outra tela (ex: abriu a tela cheia e voltou), o
+        // mini player pode "congelar" -- a superfície de vídeo é perdida
+        // enquanto a tela fica em segundo plano. Manda tocar de novo pra
+        // ele se recuperar sozinho, sem precisar trocar de canal.
+        miniPlayer?.play()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Pausa o mini player quando sai da tela (ex: foi pra tela cheia)
+        // -- sem isso, ele continua rodando em segundo plano gastando
+        // rede/bateria à toa enquanto o mesmo canal já está tocando na
+        // tela cheia por cima.
+        miniPlayer?.pause()
     }
 
     private fun setLoading(loading: Boolean) {

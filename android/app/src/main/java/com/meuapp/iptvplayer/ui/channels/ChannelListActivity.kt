@@ -41,7 +41,6 @@ class ChannelListActivity : AppCompatActivity() {
     private val repository = XtreamRepository()
     private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
-    private lateinit var subcategoryAdapter: CategorySidebarAdapter
     private lateinit var channelAdapter: ChannelAdapter
     private lateinit var channelsLayoutManager: GridLayoutManager
     private lateinit var miniGuideAdapter: MiniGuideAdapter
@@ -49,12 +48,6 @@ class ChannelListActivity : AppCompatActivity() {
     private var selectedChannel: LiveStream? = null
     private var muted = false
     private var loadedCategories: List<Category> = emptyList()
-    // Cada painel Xtream organiza os "canais" de um jeito diferente -- em
-    // alguns, uma categoria já é granular o bastante; em outros, uma
-    // categoria "ESPORTES" esconde 40 canais numerados dentro (ESPN 1, ESPN
-    // 2, Premiere 1...). Quando isso acontece, agrupamos automaticamente
-    // por nome/qualidade e criamos essa sub-navegação.
-    private val subcategoryGroups = mutableMapOf<String, List<LiveStream>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,13 +77,6 @@ class ChannelListActivity : AppCompatActivity() {
         miniGuideAdapter = MiniGuideAdapter()
         binding.rvMiniGuide.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvMiniGuide.adapter = miniGuideAdapter
-
-        subcategoryAdapter = CategorySidebarAdapter(
-            barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
-            barColorHex = AppearancePrefs.getCategoryBarColor(this)
-        ) { category -> loadChannels(category.categoryId, category.categoryName) }
-        binding.rvSubcategories.layoutManager = LinearLayoutManager(this)
-        binding.rvSubcategories.adapter = subcategoryAdapter
 
         sidebarAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
@@ -184,13 +170,6 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     private fun loadChannels(categoryId: String, categoryName: String) {
-        // Sub-categoria já resolvida localmente (agrupada a partir de uma
-        // categoria maior) -- não precisa ir à rede de novo.
-        subcategoryGroups[categoryId]?.let { channels ->
-            binding.rvSubcategories.visibility = View.VISIBLE
-            displayChannels(channels, categoryName)
-            return
-        }
         val session = SessionStore.getSavedSession(this) ?: return
         binding.toolbar.tvSubtitle.text = "$categoryName · selecione para assistir"
         binding.tvChannelsHeader.text = "$categoryName · carregando canais…"
@@ -198,77 +177,25 @@ class ChannelListActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repository.getLiveStreams(session, categoryId)
                 .onSuccess { channels ->
-                    if (channels.size > 30) {
-                        showSubcategories(categoryName, channels)
-                    } else if (channels.isEmpty()) {
+                    if (channels.isEmpty()) {
                         // Categoria realmente vazia no provedor -- tira da
                         // lista lateral em vez de deixar ali "morta",
                         // confundindo quem for clicar de novo depois.
-                        binding.rvSubcategories.visibility = View.GONE
                         loadedCategories = loadedCategories.filterNot { it.categoryId == categoryId }
                         sidebarAdapter.submitList(loadedCategories, autoSelect = false)
                         displayChannels(channels, categoryName)
                         showError("\"$categoryName\" está vazia no provedor -- removida da lista.")
                     } else {
-                        binding.rvSubcategories.visibility = View.GONE
+                        // Sempre a lista COMPLETA da categoria, sem dividir
+                        // em subcategorias -- cada canal (com sua
+                        // qualidade/link) é uma linha própria, igual o
+                        // provedor cadastrou.
                         displayChannels(channels, categoryName)
                     }
                 }
                 .onFailure { showError("Não foi possível carregar os canais: ${it.message}") }
             setLoading(false)
         }
-    }
-
-    /** Categoria grande demais (ex: "ESPORTES" com 40 canais numerados) --
-     * agrupa em sub-categorias por nome, pra não jogar tudo numa lista só. */
-    /** Categoria grande demais (ex: "SPORTV" com muitos links de
-     * backup/qualidade por canal -- "SporTV 2 FHD¹", "SporTV 2 FHD²" etc)
-     * -- agrupa pelo NOME BASE do canal (removendo sufixos de qualidade
-     * tipo FHD¹/HD²/4K/[H265]), pra virar uma linha por canal de verdade
-     * ("SporTV 2"), não uma linha por link. Selecionar essa linha mostra
-     * todas as variantes/links daquele canal na grade principal. */
-    private fun baseChannelName(name: String): String {
-        var result = name.trim()
-        val patterns = listOf(
-            Regex("(?i)\\s*\\[[^\\]]*\\]\\s*$"),
-            Regex("(?i)\\s*(FULLHD|FHD|HD|SD|4K|H\\.?265|H\\.?264)[¹²³⁴⁵⁶⁷⁸⁹⁰0-9]*\\s*$")
-        )
-        var changed = true
-        while (changed) {
-            changed = false
-            for (pattern in patterns) {
-                val stripped = result.replace(pattern, "").trim()
-                if (stripped != result && stripped.isNotBlank()) {
-                    result = stripped
-                    changed = true
-                }
-            }
-        }
-        return result.ifBlank { name.trim() }
-    }
-
-    private fun showSubcategories(parentName: String, channels: List<LiveStream>) {
-        val sorted = channels.sortedWith(compareBy<LiveStream> { it.num }.thenBy { it.name.lowercase() })
-        subcategoryGroups.clear()
-        val parentLower = parentName.lowercase()
-        val grouped = sorted.groupBy { baseChannelName(it.name) }
-        val categories = grouped.entries.sortedBy { it.key.lowercase() }.mapIndexed { index, entry ->
-            val (baseName, group) = entry
-            val key = "channel:$parentLower:$index"
-            subcategoryGroups[key] = group
-            val label = if (group.size > 1) "$baseName (${group.size} opções)" else baseName
-            Category(key, label)
-        }.ifEmpty {
-            val key = "channel:$parentLower:empty"
-            subcategoryGroups[key] = emptyList()
-            listOf(Category(key, "$parentName — nenhum canal"))
-        }
-        // Não dispara seleção automática aqui -- já mostramos TODOS os
-        // canais da categoria pai abaixo; selecionar a 1ª sub-categoria
-        // sozinha reduziria a lista pra só 1 canal sem o usuário pedir.
-        subcategoryAdapter.submitList(categories, autoSelect = false)
-        binding.rvSubcategories.visibility = View.VISIBLE
-        displayChannels(sorted, parentName)
     }
 
     private fun displayChannels(channels: List<LiveStream>, categoryName: String) {

@@ -176,6 +176,14 @@ class LoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             if (!session.playlistUrl.isNullOrBlank()) {
                 binding.tvLoadingStatus.text = "Baixando lista completa…"
+                // Não atualiza a tela a cada pedacinho de 32KB baixado --
+                // pra listas grandes isso pode mandar centenas/milhares de
+                // atualizações pra tela em pouco tempo, sobrecarregando a
+                // tela principal do app e travando ele ("não está
+                // respondendo"). Só atualiza no máximo a cada 150ms ou
+                // quando a porcentagem realmente mudar.
+                var lastUpdateAt = 0L
+                var lastPercent = -1
                 xtreamRepository.preloadPlaylistWithProgress(session) { bytesRead, totalBytes ->
                     val percent = if (totalBytes > 0) {
                         ((bytesRead * 100) / totalBytes).toInt().coerceIn(0, 100)
@@ -185,7 +193,12 @@ class LoginActivity : AppCompatActivity() {
                         // fecha em 100% quando terminar de verdade.
                         (bytesRead / 5000L).toInt().coerceIn(0, 90)
                     }
-                    runOnUiThread { updateProgress(percent) }
+                    val now = System.currentTimeMillis()
+                    if (percent != lastPercent && now - lastUpdateAt >= 150) {
+                        lastPercent = percent
+                        lastUpdateAt = now
+                        runOnUiThread { updateProgress(percent) }
+                    }
                 }
             } else {
                 binding.tvLoadingStatus.text = "Carregando categorias…"

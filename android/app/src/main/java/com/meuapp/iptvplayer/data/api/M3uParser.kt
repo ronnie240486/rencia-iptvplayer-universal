@@ -54,9 +54,10 @@ object M3uParser {
         val rawGroupTitles = lines
             .filter { it.startsWith("#EXTINF", ignoreCase = true) }
             .map { extractAttribute(it, "group-title") ?: "Geral" }
+            .distinct() // muitos canais repetem a mesma categoria -- processa cada nome só uma vez
         val canonicalByKey = mutableMapOf<String, String>() // chave normalizada -> rótulo final
         for (raw in rawGroupTitles) {
-            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
+            val trimmed = raw.trim().replace(whitespaceRegex, " ")
             // Junta tanto variações de escrita (espaço extra, maiúscula
             // diferente) quanto variações que só mudam a qualidade
             // (ex: "COMBATE", "COMBATE HD", "Combate FHD" viram uma
@@ -70,10 +71,11 @@ object M3uParser {
                 canonicalByKey[key] = trimmed
             }
         }
-        fun canonicalGroup(raw: String): String {
-            val trimmed = raw.trim().replace(Regex("\\s+"), " ")
+        val canonicalGroupCache = mutableMapOf<String, String>() // texto cru -> nome canônico (evita reprocessar o mesmo texto de novo, canal após canal)
+        fun canonicalGroup(raw: String): String = canonicalGroupCache.getOrPut(raw) {
+            val trimmed = raw.trim().replace(whitespaceRegex, " ")
             val key = stripQualitySuffix(trimmed).lowercase()
-            return canonicalByKey[key] ?: trimmed
+            canonicalByKey[key] ?: trimmed
         }
 
         // Passagem 2: monta os canais de verdade, já usando o nome
@@ -123,6 +125,12 @@ object M3uParser {
         }
         return result
     }
+
+    // Compilada uma vez só (não a cada linha) -- montar uma Regex do zero
+    // é um trabalho considerável, e listas com milhares de canais chamavam
+    // isso milhares de vezes, deixando o carregamento bem mais lento do
+    // que precisava.
+    private val whitespaceRegex = Regex("\\s+")
 
     private val qualitySuffixPatterns = listOf(
         Regex("(?i)\\s*\\[[^\\]]*\\]\\s*$"),

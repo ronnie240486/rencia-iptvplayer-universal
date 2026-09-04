@@ -445,46 +445,6 @@ class XtreamRepository(context: Context? = null) {
      * em Ajustes, pra achar canais com problema sem precisar clicar um
      * por um. Roda em paralelo (poucos de cada vez, pra não sobrecarregar)
      * e informa o progresso conforme vai testando. */
-    suspend fun healthCheck(
-        session: Session,
-        limit: Int = 150,
-        onProgress: (checked: Int, total: Int) -> Unit
-    ): Result<List<HealthCheckResult>> = runCatching {
-        val channels = fetchM3uChannels(session).take(limit)
-        if (channels.isEmpty()) return@runCatching emptyList()
-        val checkClient = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
-            .build()
-        var checked = 0
-        val results = mutableListOf<HealthCheckResult>()
-        // Testa em grupos pequenos ao mesmo tempo, não um por um (senão
-        // demoraria demais numa lista grande) nem todos de uma vez (senão
-        // sobrecarrega a rede e dá falso negativo).
-        channels.chunked(8).forEach { batch ->
-            val batchResults = kotlinx.coroutines.coroutineScope {
-                batch.map { channel ->
-                    kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
-                        val ok = runCatching {
-                            val request = okhttp3.Request.Builder()
-                                .url(channel.streamUrl)
-                                .head()
-                                .build()
-                            checkClient.newCall(request).execute().use { it.isSuccessful || it.code == 405 }
-                        }.getOrDefault(false)
-                        HealthCheckResult(channel.name, channel.groupTitle, ok)
-                    }
-                }.map { it.await() }
-            }
-            results.addAll(batchResults)
-            checked += batch.size
-            onProgress(checked, channels.size)
-        }
-        results
-    }
-
-    data class HealthCheckResult(val name: String, val category: String, val ok: Boolean)
-
     fun buildSeriesStreamUrl(
         session: Session,
         episodeId: String,

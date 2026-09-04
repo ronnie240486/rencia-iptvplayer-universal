@@ -68,9 +68,24 @@ class LoginActivity : AppCompatActivity() {
         startCrestPulse()
 
         val session = SessionStore.getSavedSession(this)
-        val detectedMac = session?.mac?.takeIf { it.isNotBlank() } ?: MacAddressProvider.getFixedMac(this)
+        val savedMac = session?.mac?.takeIf { it.isNotBlank() }
+        if (savedMac != null) {
+            binding.etMac.setText(savedMac)
+        } else {
+            // Detectar o MAC pode envolver varrer as interfaces de rede do
+            // aparelho (NetworkInterface.getNetworkInterfaces()) -- em
+            // alguns aparelhos isso demora vários segundos, e rodando
+            // direto aqui (na criação da tela) travava o app inteiro
+            // ("não está respondendo") antes até da tela aparecer
+            // direito. Agora roda em segundo plano.
+            lifecycleScope.launch {
+                val detected = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    MacAddressProvider.getFixedMac(this@LoginActivity)
+                }
+                binding.etMac.setText(detected)
+            }
+        }
 
-        binding.etMac.setText(detectedMac)
         binding.etMac.showSoftInputOnFocus = false
         binding.etMac.isCursorVisible = false
         binding.etMac.isLongClickable = false

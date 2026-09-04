@@ -286,7 +286,11 @@ class XtreamRepository(context: Context? = null) {
         val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return emptyMap()
         val epgUrl = epgUrlCache[playlistUrl] ?: return emptyMap()
         xmlTvCache[epgUrl]?.let { return it }
-        val tvgIds = channels.mapNotNull { it.tvgId }.toSet()
+        // Compara tvg-id sem diferenciar maiúscula/minúscula -- é comum o
+        // painel mandar "EPTV.Campinas" na playlist M3U e o guia XMLTV usar
+        // "eptv.campinas" (ou vice-versa); sem isso, o casamento falhava
+        // silenciosamente mesmo quando os dois IDs eram "o mesmo canal".
+        val tvgIds = channels.mapNotNull { it.tvgId?.lowercase() }.toSet()
         if (tvgIds.isEmpty()) return emptyMap()
         val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: return emptyMap()
         val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: emptyMap()
@@ -301,7 +305,7 @@ class XtreamRepository(context: Context? = null) {
         if (tvgId.isNullOrBlank()) return@runCatching emptyList()
         val guide = fetchXmlTvGuide(session)
         val now = System.currentTimeMillis()
-        guide[tvgId].orEmpty()
+        guide[tvgId.lowercase()].orEmpty()
             .filter { it.stopMillis >= now }
             .sortedBy { it.startMillis }
             .take(6)

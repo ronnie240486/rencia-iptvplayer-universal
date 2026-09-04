@@ -115,10 +115,10 @@ class ChannelListActivity : AppCompatActivity() {
             selectedChannel?.let { openFullPlayer(it) }
         }
 
-        val player = ExoPlayer.Builder(this).build().apply {
-            setAudioAttributes(AudioAttributes.Builder().setUsage(1).setContentType(3).build(), true)
-            setHandleAudioBecomingNoisy(true)
-        }
+        // Player COMPARTILHADO com a tela cheia -- assim, abrir/fechar a
+        // tela cheia do mesmo canal não reinicia/rebufferiza nada, só
+        // troca qual tela está mostrando o vídeo.
+        val player = SharedLivePlayer.getOrCreate(this)
         binding.miniPlayer.player = player
         binding.miniPlayer.useController = true
         binding.miniPlayer.controllerShowTimeoutMs = 4000
@@ -217,17 +217,16 @@ class ChannelListActivity : AppCompatActivity() {
         binding.tvSelectedChannel.text = channel.name
         binding.backdropView.setPoster(channel.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.btnRetryMiniPlayer.visibility = View.GONE
-        showMiniState("Carregando ${channel.name}…", retryVisible = false)
         val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId)
-        muted = false
-        binding.btnMiniPlayerMute.text = "SOM"
-        miniPlayer?.volume = 1f
-        miniPlayer?.apply {
-            stop()
-            clearMediaItems()
-            setMediaItem(MediaItem.fromUri(streamUrl))
-            prepare()
-            playWhenReady = true
+        // Se já é esse mesmo canal tocando (ex: voltou da tela cheia),
+        // playUrl não faz nada -- continua exatamente de onde estava, sem
+        // reiniciar. Só troca de verdade se for um canal diferente.
+        if (!SharedLivePlayer.isPlayingUrl(streamUrl)) {
+            showMiniState("Carregando ${channel.name}…", retryVisible = false)
+            muted = false
+            binding.btnMiniPlayerMute.text = "SOM"
+            SharedLivePlayer.playUrl(this, streamUrl)
+            miniPlayer?.volume = 1f
         }
         loadMiniGuide(channel)
     }
@@ -308,20 +307,20 @@ class ChannelListActivity : AppCompatActivity() {
             binding.rvSidebar.visibility = if (enabled) View.VISIBLE else View.GONE
         }
         binding.backdropView.setPoster(selectedChannel?.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
-        // Quando volta de outra tela (ex: abriu a tela cheia e voltou), o
-        // mini player pode "congelar" -- a superfície de vídeo é perdida
-        // enquanto a tela fica em segundo plano. Manda tocar de novo pra
-        // ele se recuperar sozinho, sem precisar trocar de canal.
+        // Reconecta o player compartilhado ao mini player (pode ter sido
+        // "emprestado" pra tela cheia enquanto essa tela ficou em segundo
+        // plano) -- sem travar/reiniciar nada, é o mesmo player, só volta
+        // a aparecer aqui.
+        miniPlayer?.let { binding.miniPlayer.player = it }
         miniPlayer?.play()
     }
 
     override fun onPause() {
         super.onPause()
-        // Pausa o mini player quando sai da tela (ex: foi pra tela cheia)
-        // -- sem isso, ele continua rodando em segundo plano gastando
-        // rede/bateria à toa enquanto o mesmo canal já está tocando na
-        // tela cheia por cima.
-        miniPlayer?.pause()
+        // Não pausa mais o player aqui -- agora ele é COMPARTILHADO com a
+        // tela cheia (SharedLivePlayer). Se pausasse ao sair pra tela
+        // cheia, o vídeo pararia bem na hora da troca -- o objetivo é
+        // exatamente o contrário: continuar tocando sem interrupção.
     }
 
     private fun setLoading(loading: Boolean) {
@@ -333,7 +332,12 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        miniPlayer?.release()
+        // Só encerra o player de verdade quando está saindo de Live TV
+        // (voltou pra Home) -- não ao só abrir/fechar a tela cheia por
+        // cima (isso não passa por onDestroy, só onPause/onResume).
+        if (isFinishing) {
+            SharedLivePlayer.release()
+        }
         miniPlayer = null
         super.onDestroy()
     }

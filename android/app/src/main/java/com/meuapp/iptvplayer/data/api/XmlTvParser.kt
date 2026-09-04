@@ -87,7 +87,7 @@ object XmlTvParser {
                     when (parser.name) {
                         "title" -> inTitle = false
                         "programme" -> {
-                            val channel = currentChannel
+                            val channel = currentChannel?.lowercase()
                             val start = currentStart
                             val stop = currentStop
                             if (channel != null && start != null && stop != null &&

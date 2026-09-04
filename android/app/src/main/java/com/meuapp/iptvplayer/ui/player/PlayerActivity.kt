@@ -41,6 +41,8 @@ class PlayerActivity : AppCompatActivity() {
     private var failoverUrls: List<String> = emptyList()
     private var failoverIndex = -1 // -1 = tentando o principal ainda
     private var isFavorite = false
+    private var usingSharedPlayer = false
+    private var playerListener: Player.Listener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +60,7 @@ class PlayerActivity : AppCompatActivity() {
         binding.tvChannelName.text = channelName
         binding.btnRetryPlayer.setOnClickListener {
             failoverIndex = -1
+            usingSharedPlayer = false
             initPlayer(streamUrl)
         }
 
@@ -126,7 +129,25 @@ class PlayerActivity : AppCompatActivity() {
     }.getOrDefault(value)
 
     private fun initPlayer(url: String) {
-        player?.release()
+        // Se é o mesmo canal AO VIVO que já está tocando no mini player,
+        // reaproveita o MESMO player (SharedLivePlayer) -- não cria um
+        // player novo, não reinicia/rebufferiza nada, só passa a exibir
+        // aqui o que já estava tocando.
+        val kind = intent.getStringExtra(EXTRA_KIND)
+        if (kind == "live" && SharedLivePlayer.isPlayingUrl(url)) {
+            usingSharedPlayer = true
+            val shared = SharedLivePlayer.getOrCreate(this)
+            player = shared
+            binding.playerView.player = shared
+            binding.progressBar.visibility = View.GONE
+            binding.tvPlaybackError.visibility = View.GONE
+            binding.btnRetryPlayer.visibility = View.GONE
+            attachListener(shared)
+            return
+        }
+
+        usingSharedPlayer = false
+        player?.let { if (it !== SharedLivePlayer.getOrCreate(this)) it.release() }
         binding.tvPlaybackError.visibility = View.GONE
         binding.btnRetryPlayer.visibility = View.GONE
         binding.progressBar.visibility = View.VISIBLE
@@ -139,8 +160,16 @@ class PlayerActivity : AppCompatActivity() {
         )
         exoPlayer.setHandleAudioBecomingNoisy(true)
         binding.playerView.player = exoPlayer
+        attachListener(exoPlayer)
 
-        exoPlayer.addListener(object : Player.Listener {
+        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+    }
+
+    private fun attachListener(target: ExoPlayer) {
+        playerListener?.let { target.removeListener(it) }
+        val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 when (state) {
                     Player.STATE_BUFFERING -> {
@@ -162,13 +191,15 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                // Erro no player compartilhado (ao vivo) -- passa a usar
+                // um player próprio pra essa troca de link, sem afetar o
+                // mini player caso o usuário volte antes disso resolver.
+                usingSharedPlayer = false
                 tryNextFailoverOrShowError()
             }
-        })
-
-        exoPlayer.setMediaItem(MediaItem.fromUri(url))
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        }
+        playerListener = listener
+        target.addListener(listener)
     }
 
     /** Esse canal falhou -- se tiver outro link (outra qualidade/backup)
@@ -196,7 +227,16 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        player?.release()
+        val currentPlayer = player
+        playerListener?.let { currentPlayer?.removeListener(it) }
+        if (usingSharedPlayer) {
+            // Não libera -- é o player compartilhado com o mini player. O
+            // vídeo continua tocando; ao voltar pra tela de Canais, o mini
+            // player retoma ele exatamente de onde estava.
+            player = null
+            return
+        }
+        currentPlayer?.release()
         player = null
     }
 }

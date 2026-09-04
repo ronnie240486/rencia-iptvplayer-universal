@@ -276,7 +276,7 @@ class ChannelListActivity : AppCompatActivity() {
         val diag = repository.diagnoseEpg(session, channel.epgChannelId)
         val reason = when {
             !diag.hasTvgId -> "este canal não tem um tvg-id na playlist (a lista não diz qual é o ID de programação dele)"
-            !diag.hasEpgUrlDeclared -> "esta playlist não declara um guia de programação (sem url-tvg/x-tvg-url no cabeçalho)"
+            !diag.hasEpgUrlDeclared -> "esta lista não declara guia de programação, e o endereço padrão do painel (xmltv.php) também não respondeu com dados"
             diag.guideChannelCount == 0 -> "o guia declarado na lista não retornou nenhum canal (pode estar fora do ar ou vazio)"
             !diag.hasMatchForThisChannel -> "o guia tem ${diag.guideChannelCount} canais, mas nenhum bate com o ID deste canal (\"${channel.epgChannelId}\")"
             else -> "sem programação futura cadastrada pra este canal agora"

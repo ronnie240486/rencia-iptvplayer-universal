@@ -284,18 +284,33 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return emptyMap()
         val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return emptyMap()
-        val epgUrl = epgUrlCache[playlistUrl] ?: return emptyMap()
-        xmlTvCache[epgUrl]?.let { return it }
         // Compara tvg-id sem diferenciar maiúscula/minúscula -- é comum o
         // painel mandar "EPTV.Campinas" na playlist M3U e o guia XMLTV usar
         // "eptv.campinas" (ou vice-versa); sem isso, o casamento falhava
         // silenciosamente mesmo quando os dois IDs eram "o mesmo canal".
         val tvgIds = channels.mapNotNull { it.tvgId?.lowercase() }.toSet()
         if (tvgIds.isEmpty()) return emptyMap()
-        val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: return emptyMap()
-        val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: emptyMap()
-        xmlTvCache[epgUrl] = parsed
-        return parsed
+
+        // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
+        //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
+        //    sempre também expõem o guia num endereço fixo (xmltv.php),
+        //    mesmo sem avisar isso na playlist -- tenta esse antes de
+        //    desistir de vez.
+        val declaredUrl = epgUrlCache[playlistUrl]
+        val fallbackUrl = "${normalizeBase(session.serverUrl)}/xmltv.php?username=${session.username}&password=${session.password}"
+        val candidates = listOfNotNull(declaredUrl, fallbackUrl).distinct()
+
+        for (epgUrl in candidates) {
+            xmlTvCache[epgUrl]?.let { if (it.isNotEmpty()) return it }
+            val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
+            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: continue
+            if (parsed.isNotEmpty()) {
+                xmlTvCache[epgUrl] = parsed
+                epgUrlCache[playlistUrl] = epgUrl
+                return parsed
+            }
+        }
+        return emptyMap()
     }
 
     /** Programação (agora + próximos) de UM canal específico, lida do guia
@@ -324,8 +339,11 @@ class XtreamRepository(context: Context? = null) {
      * do que "não disponível" quando o EPG não aparece). */
     suspend fun diagnoseEpg(session: Session, tvgId: String?): EpgDiagnostic = runCatching {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
-        val epgUrl = playlistUrl?.let { epgUrlCache[it] }
+        // Chama fetchXmlTvGuide PRIMEIRO -- se conseguir usando o endereço
+        // padrão xmltv.php (mesmo sem a playlist declarar isso), o cache
+        // já fica atualizado com a URL que funcionou de verdade.
         val guide = if (playlistUrl != null) fetchXmlTvGuide(session) else emptyMap()
+        val epgUrl = playlistUrl?.let { epgUrlCache[it] }
         EpgDiagnostic(
             hasTvgId = !tvgId.isNullOrBlank(),
             hasEpgUrlDeclared = epgUrl != null,

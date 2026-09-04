@@ -176,18 +176,30 @@ class XtreamRepository(context: Context? = null) {
 
         // Já tem em disco de uma sessão anterior (fechou e abriu o app)?
         // Usa na hora, sem baixar de novo -- é exatamente esse cache que
-        // faz "fechar e abrir não precisar carregar de novo".
-        m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
-            val cachedText = runCatching { file.readText() }.getOrNull()
-            if (!cachedText.isNullOrBlank()) {
-                val cachedParsed = M3uParser.parse(cachedText)
-                if (cachedParsed.isNotEmpty()) {
-                    m3uCache[playlistUrl] = cachedParsed
-                    epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
-                    onProgress(1, 1)
-                    return@runCatching
-                }
+        // faz "fechar e abrir não precisar carregar de novo". IMPORTANTE:
+        // ler o arquivo e processar a lista (milhares de linhas, com
+        // varias passagens de regex) tem que rodar em segundo plano --
+        // isso tava faltando aqui, rodando direto na tela principal, e por
+        // isso o app SÓ travava depois de fechar e abrir de novo (na
+        // primeira vez não existe cache em disco ainda, então nunca caía
+        // nesse trecho -- só na segunda vez em diante).
+        val fromDisk = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
+                val cachedText = runCatching { file.readText() }.getOrNull()
+                if (!cachedText.isNullOrBlank()) {
+                    val cachedParsed = M3uParser.parse(cachedText)
+                    if (cachedParsed.isNotEmpty()) {
+                        cachedParsed to cachedText
+                    } else null
+                } else null
             }
+        }
+        if (fromDisk != null) {
+            val (cachedParsed, cachedText) = fromDisk
+            m3uCache[playlistUrl] = cachedParsed
+            epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
+            onProgress(1, 1)
+            return@runCatching
         }
 
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -232,17 +244,24 @@ class XtreamRepository(context: Context? = null) {
         // Cache em disco (sobrevive fechar e abrir o app de novo) -- só o
         // cache em memória acima não é suficiente, porque some quando o
         // processo do app é encerrado (Android mata o app em segundo
-        // plano com frequência).
-        m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
-            val cachedText = runCatching { file.readText() }.getOrNull()
-            if (!cachedText.isNullOrBlank()) {
-                val cachedParsed = M3uParser.parse(cachedText)
-                if (cachedParsed.isNotEmpty()) {
-                    m3uCache[playlistUrl] = cachedParsed
-                    epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
-                    return cachedParsed
-                }
+        // plano com frequência). Ler o arquivo e processar (regex em
+        // milhares de linhas) precisa rodar fora da tela principal --
+        // sem isso, travava o app inteiro toda vez que abria de novo
+        // (depois da primeira vez, quando o cache já existe em disco).
+        val fromDisk = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            m3uCacheFile(playlistUrl)?.takeIf { it.exists() }?.let { file ->
+                val cachedText = runCatching { file.readText() }.getOrNull()
+                if (!cachedText.isNullOrBlank()) {
+                    val cachedParsed = M3uParser.parse(cachedText)
+                    if (cachedParsed.isNotEmpty()) cachedParsed to cachedText else null
+                } else null
             }
+        }
+        if (fromDisk != null) {
+            val (cachedParsed, cachedText) = fromDisk
+            m3uCache[playlistUrl] = cachedParsed
+            epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(cachedText)
+            return cachedParsed
         }
 
         val body = fetchBody(playlistUrl)

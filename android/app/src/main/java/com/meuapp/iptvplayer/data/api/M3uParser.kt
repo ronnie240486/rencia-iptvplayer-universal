@@ -219,6 +219,17 @@ object M3uParser {
     fun toSeriesCategories(channels: List<ParsedChannel>): List<Category> =
         toCategories(channels.filter { contentKind(it) == "series" })
 
+    /** Todos os links (qualidade/backup) do MESMO canal dentro da mesma
+     * categoria -- usado pra troca automática de link quando um falha
+     * ("Combate FHD" falhou? tenta "Combate HD", depois "Combate SD"...). */
+    fun siblingStreamUrls(channels: List<ParsedChannel>, groupTitle: String, channelName: String): List<String> {
+        val baseKey = stripQualitySuffix(channelName).lowercase()
+        return channels
+            .filter { it.groupTitle == groupTitle && stripQualitySuffix(it.name).lowercase() == baseKey }
+            .map { it.streamUrl }
+            .distinct()
+    }
+
     // ---- Busca única (canais + filmes + séries de uma vez) ----
 
     private fun matches(name: String, query: String): Boolean {

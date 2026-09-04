@@ -57,6 +57,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.backdropView.setPoster(cover, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.ivCover.load(cover) { crossfade(true) }
         loadTmdbCover(name)
+        setupFavoriteButton(seriesId, name, cover)
 
         episodeAdapter = EpisodeAdapter { episode -> openEpisode(session, episode) }
         binding.rvEpisodes.layoutManager = LinearLayoutManager(this)
@@ -76,6 +77,35 @@ class SeriesDetailActivity : AppCompatActivity() {
                 binding.ivCover.load(posterUrl) { crossfade(true) }
                 binding.backdropView.setPoster(posterUrl, AppearancePrefs.isBackdropPosterEnabled(this@SeriesDetailActivity))
             }
+        }
+    }
+
+    /** O botão de busca do topo não faz sentido aqui (já estamos dentro de
+     * uma série) -- reaproveita ele como botão de favoritar a série. */
+    private fun setupFavoriteButton(seriesId: Int, name: String, cover: String?) {
+        val btn = binding.detailToolbar.btnSearch
+        btn.setImageResource(R.drawable.ic_star)
+        var isFavorite = com.meuapp.iptvplayer.util.FavoritesStore.isFavorite(this, "series", "series:$seriesId", seriesId)
+        fun updateIcon() {
+            btn.alpha = if (isFavorite) 1f else 0.5f
+            btn.setColorFilter(getColor(if (isFavorite) R.color.accent else android.R.color.white))
+        }
+        updateIcon()
+        btn.setOnClickListener {
+            isFavorite = com.meuapp.iptvplayer.util.FavoritesStore.toggle(
+                this,
+                com.meuapp.iptvplayer.util.FavoriteItem(
+                    kind = "series",
+                    title = name,
+                    posterUrl = cover,
+                    streamUrl = "series:$seriesId",
+                    seriesId = seriesId,
+                    seriesCover = cover,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+            updateIcon()
+            Toast.makeText(this, if (isFavorite) "Adicionado aos favoritos" else "Removido dos favoritos", Toast.LENGTH_SHORT).show()
         }
     }
 

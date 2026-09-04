@@ -77,6 +77,9 @@ class SettingsActivity : AppCompatActivity() {
         configureRow(R.id.rowSwitchPlaylist, "⇄", "Trocar de lista", "Ver listas disponíveis para este MAC") {
             showPlaylistPicker(mac)
         }
+        configureRow(R.id.rowHealthCheck, "✓", "Verificar lista", "Testar quais canais estão com problema") {
+            startActivity(Intent(this, com.meuapp.iptvplayer.ui.settings.HealthCheckActivity::class.java))
+        }
         configureRow(R.id.rowDevice, "ID", "MAC do dispositivo", mac.ifBlank { "Não informado" }) {
             if (mac.isBlank()) {
                 showInfo("MAC do dispositivo", "Nenhum MAC foi cadastrado ainda.")

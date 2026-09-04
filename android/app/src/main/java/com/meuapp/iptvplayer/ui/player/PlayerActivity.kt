@@ -3,6 +3,7 @@ package com.meuapp.iptvplayer.ui.player
 import android.os.Bundle
 import android.util.Base64
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.AudioAttributes
@@ -10,8 +11,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.meuapp.iptvplayer.R
 import com.meuapp.iptvplayer.data.api.XtreamRepository
 import com.meuapp.iptvplayer.databinding.ActivityPlayerBinding
+import com.meuapp.iptvplayer.util.FavoriteItem
+import com.meuapp.iptvplayer.util.FavoritesStore
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch
 
@@ -22,12 +26,21 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_CHANNEL_NAME = "extra_channel_name"
         const val EXTRA_STREAM_ID = "extra_stream_id"
         const val EXTRA_EPG_CHANNEL_ID = "extra_epg_channel_id"
+        const val EXTRA_KIND = "extra_kind" // "live" | "vod" -- controla se favoritar aparece
+        const val EXTRA_POSTER_URL = "extra_poster_url"
+        // Outros links (qualidades/backup) do MESMO canal -- se o
+        // principal falhar, tenta esses automaticamente antes de desistir.
+        const val EXTRA_FAILOVER_URLS = "extra_failover_urls"
     }
 
     private lateinit var binding: ActivityPlayerBinding
     private val repository by lazy { XtreamRepository(this) }
     private var player: ExoPlayer? = null
     private var streamUrl: String = ""
+    private var channelName: String = ""
+    private var failoverUrls: List<String> = emptyList()
+    private var failoverIndex = -1 // -1 = tentando o principal ainda
+    private var isFavorite = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,16 +48,54 @@ class PlayerActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
-        val channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
+        channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
+        failoverUrls = intent.getStringArrayListExtra(EXTRA_FAILOVER_URLS).orEmpty()
+            .filter { it.isNotBlank() && it != streamUrl }
         if (streamUrl.isBlank()) {
             finish()
             return
         }
         binding.tvChannelName.text = channelName
-        binding.btnRetryPlayer.setOnClickListener { initPlayer(streamUrl) }
+        binding.btnRetryPlayer.setOnClickListener {
+            failoverIndex = -1
+            initPlayer(streamUrl)
+        }
 
+        setupFavoriteButton()
         initPlayer(streamUrl)
         loadNowPlaying()
+    }
+
+    private fun setupFavoriteButton() {
+        val kind = intent.getStringExtra(EXTRA_KIND)
+        if (kind.isNullOrBlank()) {
+            binding.btnFavorite.visibility = View.GONE
+            return
+        }
+        isFavorite = FavoritesStore.isFavorite(this, kind, streamUrl)
+        updateFavoriteIcon()
+        binding.btnFavorite.setOnClickListener {
+            val posterUrl = intent.getStringExtra(EXTRA_POSTER_URL)
+            isFavorite = FavoritesStore.toggle(
+                this,
+                FavoriteItem(
+                    kind = kind,
+                    title = channelName,
+                    posterUrl = posterUrl,
+                    streamUrl = streamUrl,
+                    addedAt = System.currentTimeMillis()
+                )
+            )
+            updateFavoriteIcon()
+            Toast.makeText(this, if (isFavorite) "Adicionado aos favoritos" else "Removido dos favoritos", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateFavoriteIcon() {
+        binding.btnFavorite.alpha = if (isFavorite) 1f else 0.5f
+        binding.btnFavorite.setColorFilter(
+            getColor(if (isFavorite) R.color.accent else android.R.color.white)
+        )
     }
 
     /** Mostra o programa que está passando agora nesse canal, num rótulo
@@ -111,16 +162,36 @@ class PlayerActivity : AppCompatActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                binding.progressBar.visibility = View.GONE
-                binding.tvPlaybackError.text = "Não foi possível reproduzir este canal"
-                binding.tvPlaybackError.visibility = View.VISIBLE
-                binding.btnRetryPlayer.visibility = View.VISIBLE
+                tryNextFailoverOrShowError()
             }
         })
 
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+    }
+
+    /** Esse canal falhou -- se tiver outro link (outra qualidade/backup)
+     * cadastrado pro mesmo canal, tenta ele sozinho, sem o usuário
+     * precisar fazer nada. Só mostra o erro/botão de recarregar depois de
+     * esgotar todas as opções conhecidas. */
+    private fun tryNextFailoverOrShowError() {
+        val nextIndex = failoverIndex + 1
+        if (nextIndex < failoverUrls.size) {
+            failoverIndex = nextIndex
+            val nextUrl = failoverUrls[nextIndex]
+            Toast.makeText(this, "Esse link falhou, tentando outra opção…", Toast.LENGTH_SHORT).show()
+            initPlayer(nextUrl)
+            return
+        }
+        binding.progressBar.visibility = View.GONE
+        binding.tvPlaybackError.text = if (failoverUrls.isEmpty()) {
+            "Não foi possível reproduzir este canal"
+        } else {
+            "Nenhuma das opções deste canal funcionou no momento"
+        }
+        binding.tvPlaybackError.visibility = View.VISIBLE
+        binding.btnRetryPlayer.visibility = View.VISIBLE
     }
 
     override fun onStop() {

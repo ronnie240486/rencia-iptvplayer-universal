@@ -346,6 +346,17 @@ class XtreamRepository(context: Context? = null) {
         return "$base/live/${session.username}/${session.password}/$streamId.m3u8"
     }
 
+    /** Outros links (qualidade/backup) do mesmo canal, pra tentar
+     * automaticamente se o principal falhar -- só funciona pra canais
+     * vindos de playlist M3U (onde dá pra comparar nome/categoria). */
+    suspend fun getFailoverUrls(session: Session, categoryId: String?, channelName: String, excludeUrl: String): List<String> {
+        if (session.playlistUrl.isNullOrBlank() || categoryId == null) return emptyList()
+        return runCatching {
+            val channels = fetchM3uChannels(session)
+            M3uParser.siblingStreamUrls(channels, categoryId, channelName).filterNot { it == excludeUrl }
+        }.getOrDefault(emptyList())
+    }
+
     suspend fun getVodCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching { M3uParser.toVodCategories(fetchM3uChannels(session)) }
@@ -428,6 +439,51 @@ class XtreamRepository(context: Context? = null) {
                 "&action=get_series_info&series_id=$seriesId"
         parseJson<SeriesInfoResponse>(fetchBody(url))
     }
+
+    /** Testa a conexão de uma lista de canais (sem baixar o vídeo inteiro,
+     * só confere se o servidor responde) -- usado pelo "Verificar lista"
+     * em Ajustes, pra achar canais com problema sem precisar clicar um
+     * por um. Roda em paralelo (poucos de cada vez, pra não sobrecarregar)
+     * e informa o progresso conforme vai testando. */
+    suspend fun healthCheck(
+        session: Session,
+        limit: Int = 150,
+        onProgress: (checked: Int, total: Int) -> Unit
+    ): Result<List<HealthCheckResult>> = runCatching {
+        val channels = fetchM3uChannels(session).take(limit)
+        if (channels.isEmpty()) return@runCatching emptyList()
+        val checkClient = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        var checked = 0
+        val results = mutableListOf<HealthCheckResult>()
+        // Testa em grupos pequenos ao mesmo tempo, não um por um (senão
+        // demoraria demais numa lista grande) nem todos de uma vez (senão
+        // sobrecarrega a rede e dá falso negativo).
+        channels.chunked(8).forEach { batch ->
+            val batchResults = kotlinx.coroutines.coroutineScope {
+                batch.map { channel ->
+                    kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                        val ok = runCatching {
+                            val request = okhttp3.Request.Builder()
+                                .url(channel.streamUrl)
+                                .head()
+                                .build()
+                            checkClient.newCall(request).execute().use { it.isSuccessful || it.code == 405 }
+                        }.getOrDefault(false)
+                        HealthCheckResult(channel.name, channel.groupTitle, ok)
+                    }
+                }.map { it.await() }
+            }
+            results.addAll(batchResults)
+            checked += batch.size
+            onProgress(checked, channels.size)
+        }
+        results
+    }
+
+    data class HealthCheckResult(val name: String, val category: String, val ok: Boolean)
 
     fun buildSeriesStreamUrl(
         session: Session,

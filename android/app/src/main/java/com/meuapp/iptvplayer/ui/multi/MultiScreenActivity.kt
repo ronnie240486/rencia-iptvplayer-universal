@@ -87,7 +87,8 @@ class MultiScreenActivity : AppCompatActivity() {
         val player = ExoPlayer.Builder(this).build()
         players[index] = player
         playerViews[index].player = player
-        player.setMediaItem(MediaItem.fromUri(repository.buildLiveStreamUrl(currentSession, channel.streamId)))
+        val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(currentSession, channel.streamId)
+        player.setMediaItem(MediaItem.fromUri(streamUrl))
         player.prepare()
         player.playWhenReady = true
     }

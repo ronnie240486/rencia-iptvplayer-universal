@@ -287,12 +287,18 @@ class ChannelListActivity : AppCompatActivity() {
                 watchedAt = System.currentTimeMillis()
             )
         )
-        startActivity(Intent(this, PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
-            putExtra(PlayerActivity.EXTRA_STREAM_ID, channel.streamId)
-            putExtra(PlayerActivity.EXTRA_EPG_CHANNEL_ID, channel.epgChannelId)
-        })
+        lifecycleScope.launch {
+            val failoverUrls = repository.getFailoverUrls(session, channel.categoryId, channel.name, streamUrl)
+            startActivity(Intent(this@ChannelListActivity, PlayerActivity::class.java).apply {
+                putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
+                putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
+                putExtra(PlayerActivity.EXTRA_STREAM_ID, channel.streamId)
+                putExtra(PlayerActivity.EXTRA_EPG_CHANNEL_ID, channel.epgChannelId)
+                putExtra(PlayerActivity.EXTRA_KIND, "live")
+                putExtra(PlayerActivity.EXTRA_POSTER_URL, channel.streamIcon)
+                putStringArrayListExtra(PlayerActivity.EXTRA_FAILOVER_URLS, ArrayList(failoverUrls))
+            })
+        }
     }
 
     override fun onResume() {

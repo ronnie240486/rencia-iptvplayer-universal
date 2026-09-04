@@ -139,6 +139,8 @@ class VodActivity : AppCompatActivity() {
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, movie.name)
+            putExtra(PlayerActivity.EXTRA_KIND, "vod")
+            putExtra(PlayerActivity.EXTRA_POSTER_URL, movie.streamIcon)
         }
         startActivity(intent)
     }

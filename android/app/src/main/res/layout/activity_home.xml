@@ -2,24 +2,44 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#071019"
-    android:clipChildren="false">
+    android:background="#071019">
 
-    <ImageView
-        android:id="@+id/homeBackground"
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="@null"
-        android:scaleType="fitXY"
-        android:src="@drawable/home_background_enriched_no_crest" />
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-    <FrameLayout
-        android:id="@+id/dashboardOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipChildren="false">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
-        <ImageView
+            <!-- Uma "tela cheia" normal, igual sempre foi: fundo, brasão
+            e os botões. O tamanho exato (altura da tela) é ajustado em
+            código, porque dentro de um ScrollView não dá pra usar
+            match_parent direto. -->
+            <FrameLayout
+                android:id="@+id/dashboardContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipChildren="false">
+
+                <ImageView
+                    android:id="@+id/homeBackground"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/home_background_enriched_no_crest" />
+
+                <FrameLayout
+                    android:id="@+id/dashboardOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipChildren="false">
+
+                    <ImageView
             android:id="@+id/homeCrest"
             android:layout_width="1dp"
             android:layout_height="1dp"
@@ -234,36 +254,41 @@
             android:textSize="12sp"
             android:textStyle="bold" />
     </FrameLayout>
+                <!-- fecha dashboardContainer -->
+            </FrameLayout>
 
-    <!-- Fileira "Continuar assistindo": só aparece quando tem algo no
-    histórico, encostada no rodapé, sem atrapalhar os botões da grade. -->
-    <LinearLayout
-        android:id="@+id/continueWatchingSection"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#CC0B0B0D"
-        android:orientation="vertical"
-        android:paddingTop="6dp"
-        android:visibility="gone">
+            <!-- Fileira "Continuar assistindo": agora faz parte do FLUXO
+            normal da tela (não é mais um overlay fixo), só aparece
+            quando tem algo no histórico, e só fica visível rolando a tela
+            pra baixo, depois do painel principal. -->
+            <LinearLayout
+                android:id="@+id/continueWatchingSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#0B0B0D"
+                android:orientation="vertical"
+                android:paddingTop="14dp"
+                android:paddingBottom="18dp"
+                android:visibility="gone">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="CONTINUAR ASSISTINDO"
-            android:textColor="#e6e4d8"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:text="CONTINUAR ASSISTINDO"
+                    android:textColor="#e6e4d8"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvContinueWatching"
-            android:layout_width="match_parent"
-            android:layout_height="88dp"
-            android:clipToPadding="false"
-            android:orientation="horizontal"
-            android:paddingHorizontal="12dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="6dp" />
-    </LinearLayout>
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvContinueWatching"
+                    android:layout_width="match_parent"
+                    android:layout_height="130dp"
+                    android:clipToPadding="false"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingTop="8dp" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
 </FrameLayout>

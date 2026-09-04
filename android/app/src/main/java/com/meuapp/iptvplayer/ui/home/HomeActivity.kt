@@ -67,7 +67,29 @@ class HomeActivity : AppCompatActivity() {
 
         bindHomeActions()
         setupContinueWatching()
-        binding.dashboardOverlay.post { positionHomeTargets() }
+        binding.dashboardOverlay.post {
+            sizeDashboardToScreen()
+            // Espera mais um ciclo de layout depois de mudar a altura --
+            // sem isso, positionHomeTargets() ainda lia o tamanho ANTIGO
+            // do painel (a mudança de altura só é aplicada de verdade no
+            // próximo passo de desenho, não na hora).
+            binding.dashboardContainer.post { positionHomeTargets() }
+        }
+    }
+
+    /** O painel principal (fundo + brasão + botões) precisa ocupar a tela
+     * inteira, igual sempre foi -- mas agora ele está dentro de um
+     * ScrollView (pra "Continuar assistindo" poder ficar revelado ao rolar
+     * pra baixo, em vez de um overlay fixo espremido em cima dos botões).
+     * Dentro de um ScrollView não dá pra usar match_parent direto, então
+     * define a altura em código, do tamanho exato da tela. */
+    private fun sizeDashboardToScreen() {
+        val screenHeight = resources.displayMetrics.heightPixels
+        val params = binding.dashboardContainer.layoutParams
+        if (params.height != screenHeight) {
+            params.height = screenHeight
+            binding.dashboardContainer.layoutParams = params
+        }
     }
 
     override fun onStart() {
@@ -93,7 +115,10 @@ class HomeActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             hideSystemBars()
-            if (::binding.isInitialized) binding.dashboardOverlay.post { positionHomeTargets() }
+            if (::binding.isInitialized) binding.dashboardOverlay.post {
+                sizeDashboardToScreen()
+                binding.dashboardContainer.post { positionHomeTargets() }
+            }
         }
     }
 
@@ -146,25 +171,25 @@ class HomeActivity : AppCompatActivity() {
         if (width <= 0 || height <= 0) return
 
         place(binding.homeCrest, 0.34f, -0.02f, 0.32f, 0.62f)
-        place(binding.btnLiveTv, 0.172f, 0.40f, 0.114f, 0.20f)
-        place(binding.btnEpg, 0.357f, 0.40f, 0.116f, 0.20f)
-        place(binding.btnVod, 0.544f, 0.40f, 0.139f, 0.20f)
-        place(binding.btnSeries, 0.733f, 0.40f, 0.118f, 0.20f)
-        place(binding.btnAccount, 0.172f, 0.64f, 0.1f, 0.11f)
-        place(binding.btnMulti, 0.317f, 0.64f, 0.1f, 0.11f)
-        place(binding.btnFavorite, 0.462f, 0.64f, 0.1f, 0.11f)
-        place(binding.btnRadio, 0.607f, 0.64f, 0.1f, 0.11f)
-        place(binding.btnSettings, 0.752f, 0.64f, 0.1f, 0.11f)
+        place(binding.btnLiveTv, 0.172f, 0.477f, 0.114f, 0.247f)
+        place(binding.btnEpg, 0.357f, 0.477f, 0.116f, 0.247f)
+        place(binding.btnVod, 0.544f, 0.477f, 0.139f, 0.247f)
+        place(binding.btnSeries, 0.733f, 0.477f, 0.118f, 0.247f)
+        place(binding.btnAccount, 0.172f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnMulti, 0.317f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnFavorite, 0.462f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnRadio, 0.607f, 0.785f, 0.1f, 0.139f)
+        place(binding.btnSettings, 0.752f, 0.785f, 0.1f, 0.139f)
 
-        placeLabel(binding.homeLabelLive, 0.172f, 0.40f, 0.114f, 0.20f)
-        placeLabel(binding.homeLabelEpg, 0.357f, 0.40f, 0.116f, 0.20f)
-        placeLabel(binding.homeLabelVod, 0.544f, 0.40f, 0.139f, 0.20f)
-        placeLabel(binding.homeLabelSeries, 0.733f, 0.40f, 0.118f, 0.20f)
-        placeLabel(binding.homeLabelAccount, 0.172f, 0.64f, 0.1f, 0.11f)
-        placeLabel(binding.homeLabelMulti, 0.317f, 0.64f, 0.1f, 0.11f)
-        placeLabel(binding.homeLabelFavorite, 0.462f, 0.64f, 0.1f, 0.11f)
-        placeLabel(binding.homeLabelRadio, 0.607f, 0.64f, 0.1f, 0.11f)
-        placeLabel(binding.homeLabelSettings, 0.752f, 0.64f, 0.1f, 0.11f)
+        placeLabel(binding.homeLabelLive, 0.172f, 0.477f, 0.114f, 0.247f)
+        placeLabel(binding.homeLabelEpg, 0.357f, 0.477f, 0.116f, 0.247f)
+        placeLabel(binding.homeLabelVod, 0.544f, 0.477f, 0.139f, 0.247f)
+        placeLabel(binding.homeLabelSeries, 0.733f, 0.477f, 0.118f, 0.247f)
+        placeLabel(binding.homeLabelAccount, 0.172f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelMulti, 0.317f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelFavorite, 0.462f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelRadio, 0.607f, 0.785f, 0.1f, 0.139f)
+        placeLabel(binding.homeLabelSettings, 0.752f, 0.785f, 0.1f, 0.139f)
     }
 
     private fun place(view: View, x: Float, y: Float, w: Float, h: Float) {

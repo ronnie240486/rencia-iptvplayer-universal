@@ -54,13 +54,14 @@ class SearchActivity : AppCompatActivity() {
         binding.rvLive.layoutManager = LinearLayoutManager(this)
         binding.rvLive.adapter = liveAdapter
 
-        vodAdapter = VodAdapter(onClick = { movie -> openVod(movie) })
+        vodAdapter = VodAdapter(onClick = { movie -> openVod(movie) }, horizontal = true)
         binding.rvVod.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvVod.adapter = vodAdapter
 
         seriesAdapter = SeriesAdapter(
             lifecycleScope = lifecycleScope,
-            onClick = { series -> openSeries(series) }
+            onClick = { series -> openSeries(series) },
+            horizontal = true
         )
         binding.rvSeries.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         binding.rvSeries.adapter = seriesAdapter

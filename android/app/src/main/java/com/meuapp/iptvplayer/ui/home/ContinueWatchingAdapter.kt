@@ -4,8 +4,7 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import com.meuapp.iptvplayer.data.model.SeriesItem
-import com.meuapp.iptvplayer.databinding.ItemPosterBinding
+import com.meuapp.iptvplayer.databinding.ItemPosterHorizontalBinding
 import com.meuapp.iptvplayer.util.WatchHistoryItem
 
 class ContinueWatchingAdapter(
@@ -21,7 +20,7 @@ class ContinueWatchingAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val binding = ItemPosterBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = ItemPosterHorizontalBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return ViewHolder(binding)
     }
 
@@ -39,5 +38,5 @@ class ContinueWatchingAdapter(
 
     override fun getItemCount() = items.size
 
-    class ViewHolder(val binding: ItemPosterBinding) : RecyclerView.ViewHolder(binding.root)
+    class ViewHolder(val binding: ItemPosterHorizontalBinding) : RecyclerView.ViewHolder(binding.root)
 }

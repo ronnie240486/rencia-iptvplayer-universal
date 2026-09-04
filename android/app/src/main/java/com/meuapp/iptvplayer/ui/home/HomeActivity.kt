@@ -185,6 +185,20 @@ class HomeActivity : AppCompatActivity() {
         view.isFocusable = false
     }
 
+    /** Só desloga de verdade quando o painel RESPONDEU e disse claramente
+     * que o acesso não é mais permitido -- uma falha de rede passageira
+     * (timeout, instabilidade, servidor lento) NÃO deve deslogar ninguém.
+     * Sem essa distinção, qualquer soluço de rede jogava o usuário de
+     * volta pro login, que reativava sozinho e voltava pra Home, que
+     * falhava nessa MESMA checagem de novo -- um vaivém infinito entre as
+     * duas telas, rápido o bastante pra travar o app inteiro (parecia
+     * "não está respondendo" mesmo em aparelho rápido). */
+    private fun isGenuineAccessDenial(message: String?): Boolean {
+        val text = message.orEmpty()
+        return text.contains("não está mais cadastrado", ignoreCase = true) ||
+            text.contains("acesso bloqueado", ignoreCase = true)
+    }
+
     private fun verifyAccessNow() {
         val session = SessionStore.getSavedSession(this) ?: return
         if (session.mac.isBlank()) return
@@ -203,11 +217,16 @@ class HomeActivity : AppCompatActivity() {
                         Toast.makeText(this@HomeActivity, "Lista atualizada automaticamente", Toast.LENGTH_LONG).show()
                     }
                 }
-                .onFailure {
-                    SessionStore.clear(this@HomeActivity)
-                    Toast.makeText(this@HomeActivity, "Acesso indisponível para este MAC", Toast.LENGTH_LONG).show()
-                    startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
-                    finish()
+                .onFailure { error ->
+                    if (isGenuineAccessDenial(error.message)) {
+                        SessionStore.clear(this@HomeActivity)
+                        Toast.makeText(this@HomeActivity, "Acesso indisponível para este MAC", Toast.LENGTH_LONG).show()
+                        startActivity(Intent(this@HomeActivity, LoginActivity::class.java))
+                        finish()
+                    }
+                    // Qualquer outra falha (rede, timeout, servidor fora do
+                    // ar por um instante) -- ignora silenciosamente e tenta
+                    // de novo no próximo ciclo, sem deslogar ninguém.
                 }
         }
     }

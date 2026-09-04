@@ -23,6 +23,7 @@ import com.meuapp.iptvplayer.ui.common.CategorySidebarAdapter
 import com.meuapp.iptvplayer.ui.epg.MiniGuideAdapter
 import com.meuapp.iptvplayer.ui.login.LoginActivity
 import com.meuapp.iptvplayer.ui.player.PlayerActivity
+import com.meuapp.iptvplayer.ui.player.SharedLivePlayer
 import com.meuapp.iptvplayer.util.AppearancePrefs
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch

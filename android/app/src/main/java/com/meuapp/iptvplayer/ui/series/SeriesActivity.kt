@@ -42,6 +42,7 @@ class SeriesActivity : AppCompatActivity() {
         binding.backdropView.setPoster(null, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.toolbar.tvTitle.text = getString(R.string.tile_series)
         binding.toolbar.btnBack.setOnClickListener { finish() }
+        binding.toolbar.btnSearch.setOnClickListener { startActivity(Intent(this, com.meuapp.iptvplayer.ui.search.SearchActivity::class.java)) }
 
         sidebarAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),

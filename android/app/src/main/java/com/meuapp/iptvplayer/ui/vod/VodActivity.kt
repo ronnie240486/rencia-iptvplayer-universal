@@ -50,6 +50,7 @@ class VodActivity : AppCompatActivity() {
         binding.toolbar.tvTitle.text = getString(R.string.tile_vod)
         binding.toolbar.tvSubtitle.text = "Escolha uma categoria de filmes"
         binding.toolbar.btnBack.setOnClickListener { finish() }
+        binding.toolbar.btnSearch.setOnClickListener { startActivity(Intent(this, com.meuapp.iptvplayer.ui.search.SearchActivity::class.java)) }
 
         categoryAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
@@ -124,6 +125,17 @@ class VodActivity : AppCompatActivity() {
     private fun openPlayer(movie: VodStream) {
         val session = SessionStore.getSavedSession(this) ?: return
         val streamUrl = movie.directStreamUrl ?: repository.buildVodStreamUrl(session, movie.streamId, movie.containerExtension)
+        com.meuapp.iptvplayer.util.WatchHistoryStore.record(
+            this,
+            com.meuapp.iptvplayer.util.WatchHistoryItem(
+                kind = "vod",
+                title = movie.name,
+                subtitle = null,
+                posterUrl = movie.streamIcon,
+                streamUrl = streamUrl,
+                watchedAt = System.currentTimeMillis()
+            )
+        )
         val intent = Intent(this, PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, movie.name)

@@ -65,6 +65,7 @@ class ChannelListActivity : AppCompatActivity() {
         binding.toolbar.tvTitle.text = getString(R.string.tile_live_tv)
         binding.toolbar.tvSubtitle.text = "Escolha uma categoria e selecione um canal"
         binding.toolbar.btnBack.setOnClickListener { finish() }
+        binding.toolbar.btnSearch.setOnClickListener { startActivity(Intent(this, com.meuapp.iptvplayer.ui.search.SearchActivity::class.java)) }
 
         setupMiniPlayer()
         binding.btnRetryMiniPlayer.setOnClickListener { selectedChannel?.let { selectChannel(it) } }
@@ -274,8 +275,20 @@ class ChannelListActivity : AppCompatActivity() {
 
     private fun openFullPlayer(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
+        val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId)
+        com.meuapp.iptvplayer.util.WatchHistoryStore.record(
+            this,
+            com.meuapp.iptvplayer.util.WatchHistoryItem(
+                kind = "live",
+                title = channel.name,
+                subtitle = null,
+                posterUrl = channel.streamIcon,
+                streamUrl = streamUrl,
+                watchedAt = System.currentTimeMillis()
+            )
+        )
         startActivity(Intent(this, PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_STREAM_URL, channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId))
+            putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
             putExtra(PlayerActivity.EXTRA_STREAM_ID, channel.streamId)
             putExtra(PlayerActivity.EXTRA_EPG_CHANNEL_ID, channel.epgChannelId)

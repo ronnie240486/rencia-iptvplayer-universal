@@ -234,4 +234,36 @@
             android:textSize="12sp"
             android:textStyle="bold" />
     </FrameLayout>
+
+    <!-- Fileira "Continuar assistindo": só aparece quando tem algo no
+    histórico, encostada no rodapé, sem atrapalhar os botões da grade. -->
+    <LinearLayout
+        android:id="@+id/continueWatchingSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#CC0B0B0D"
+        android:orientation="vertical"
+        android:paddingTop="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:text="CONTINUAR ASSISTINDO"
+            android:textColor="#e6e4d8"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvContinueWatching"
+            android:layout_width="match_parent"
+            android:layout_height="110dp"
+            android:clipToPadding="false"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="10dp" />
+    </LinearLayout>
 </FrameLayout>

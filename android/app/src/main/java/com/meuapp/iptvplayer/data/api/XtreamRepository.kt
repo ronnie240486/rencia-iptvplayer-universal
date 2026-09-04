@@ -437,4 +437,35 @@ class XtreamRepository(context: Context? = null) {
         val ext = containerExtension?.takeIf { it.isNotBlank() } ?: "mp4"
         return "${normalizeBase(session.serverUrl)}/series/${session.username}/${session.password}/$episodeId.$ext"
     }
+
+    data class SearchResults(
+        val live: List<LiveStream>,
+        val vod: List<VodStream>,
+        val series: List<SeriesItem>
+    )
+
+    /** Busca única (canais + filmes + séries de uma vez), varrendo a
+     * playlist M3U já em cache -- rápida, porque não baixa nada de novo.
+     * Só funciona pra sessões que têm uma playlist M3U (a maioria dos
+     * paineis mais simples); painéis puramente API teriam que buscar
+     * categoria por categoria, o que seria lento demais pra uma busca. */
+    suspend fun searchAll(session: Session, query: String): Result<SearchResults> = runCatching {
+        if (query.isBlank()) return@runCatching SearchResults(emptyList(), emptyList(), emptyList())
+        if (session.playlistUrl.isNullOrBlank()) {
+            error("Busca disponível apenas para listas M3U por enquanto.")
+        }
+        val channels = fetchM3uChannels(session)
+        val live = M3uParser.searchLive(channels, query).take(60).mapIndexed { index, c ->
+            LiveStream(index + 1, c.name, 0, c.logoUrl, c.groupTitle, c.tvgId, c.streamUrl)
+        }
+        val vod = M3uParser.searchVod(channels, query).take(60).mapIndexed { index, c ->
+            VodStream(index + 1, c.name, 0, c.logoUrl, c.groupTitle, null, null, c.streamUrl)
+        }
+        val series = M3uParser.searchSeriesShows(channels, query).take(60).map { (showName, c) ->
+            val seriesId = kotlin.math.abs("${c.groupTitle}|$showName".hashCode()) % 1_000_000_000 + 100_000_000
+            m3uSeriesLookup[seriesId] = c.groupTitle to showName
+            SeriesItem(0, showName, seriesId, c.logoUrl, c.groupTitle, null, null)
+        }
+        SearchResults(live, vod, series)
+    }
 }

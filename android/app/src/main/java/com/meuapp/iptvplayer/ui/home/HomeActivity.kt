@@ -66,6 +66,7 @@ class HomeActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         bindHomeActions()
+        setupContinueWatching()
         binding.dashboardOverlay.post { positionHomeTargets() }
     }
 
@@ -74,6 +75,13 @@ class HomeActivity : AppCompatActivity() {
         verifyAccessNow()
         accessHandler.removeCallbacks(accessCheckRunnable)
         accessHandler.postDelayed(accessCheckRunnable, ACCESS_CHECK_INTERVAL_MS)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Atualiza "Continuar assistindo" toda vez que volta pra Home (ex:
+        // depois de assistir algo), não só na primeira abertura.
+        if (::binding.isInitialized) refreshContinueWatching()
     }
 
     override fun onStop() {
@@ -87,6 +95,27 @@ class HomeActivity : AppCompatActivity() {
             hideSystemBars()
             if (::binding.isInitialized) binding.dashboardOverlay.post { positionHomeTargets() }
         }
+    }
+
+    private lateinit var continueWatchingAdapter: ContinueWatchingAdapter
+
+    private fun setupContinueWatching() {
+        continueWatchingAdapter = ContinueWatchingAdapter { item ->
+            startActivity(Intent(this, com.meuapp.iptvplayer.ui.player.PlayerActivity::class.java).apply {
+                putExtra(com.meuapp.iptvplayer.ui.player.PlayerActivity.EXTRA_STREAM_URL, item.streamUrl)
+                putExtra(com.meuapp.iptvplayer.ui.player.PlayerActivity.EXTRA_CHANNEL_NAME, item.title)
+            })
+        }
+        binding.rvContinueWatching.layoutManager =
+            androidx.recyclerview.widget.LinearLayoutManager(this, androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL, false)
+        binding.rvContinueWatching.adapter = continueWatchingAdapter
+        refreshContinueWatching()
+    }
+
+    private fun refreshContinueWatching() {
+        val items = com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this)
+        continueWatchingAdapter.submitList(items)
+        binding.continueWatchingSection.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun bindHomeActions() {
@@ -186,7 +215,7 @@ class HomeActivity : AppCompatActivity() {
     private fun dispatchAction(action: String) {
         when (action) {
             "live" -> open(ChannelListActivity::class.java)
-            "epg" -> open(ChannelListActivity::class.java)
+            "epg" -> open(com.meuapp.iptvplayer.ui.epg.EpgGuideActivity::class.java)
             "vod" -> open(VodActivity::class.java)
             "series" -> open(SeriesActivity::class.java)
             "account" -> open(AccountActivity::class.java)

@@ -219,6 +219,32 @@ object M3uParser {
     fun toSeriesCategories(channels: List<ParsedChannel>): List<Category> =
         toCategories(channels.filter { contentKind(it) == "series" })
 
+    // ---- Busca única (canais + filmes + séries de uma vez) ----
+
+    private fun matches(name: String, query: String): Boolean {
+        val normalize = { s: String ->
+            Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)
+                .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+        }
+        return normalize(name).contains(normalize(query))
+    }
+
+    fun searchLive(channels: List<ParsedChannel>, query: String): List<ParsedChannel> =
+        channels.filter { contentKind(it) == "live" && matches(it.name, query) }
+
+    fun searchVod(channels: List<ParsedChannel>, query: String): List<ParsedChannel> =
+        channels.filter { contentKind(it) == "vod" && matches(it.name, query) }
+
+    /** Séries: agrupa os resultados pelo nome base (sem o SxxExx), pra não
+     * listar cada episódio separado na busca. */
+    fun searchSeriesShows(channels: List<ParsedChannel>, query: String): List<Pair<String, ParsedChannel>> {
+        val matches = channels.filter { contentKind(it) == "series" }
+            .filter { matches(episodeInfo(it.name)?.showName ?: it.name, query) }
+        return matches
+            .distinctBy { episodeInfo(it.name)?.showName ?: it.name.trim() }
+            .map { (episodeInfo(it.name)?.showName ?: it.name.trim()) to it }
+    }
+
     // ---- Séries: agrupamento por nome + temporada/episódio ----
 
     private data class EpisodeInfo(val showName: String, val season: Int, val episode: Int)

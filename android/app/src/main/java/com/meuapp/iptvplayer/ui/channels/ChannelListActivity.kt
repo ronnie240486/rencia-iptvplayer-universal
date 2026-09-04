@@ -241,6 +241,7 @@ class ChannelListActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         binding.rvMiniGuide.visibility = View.VISIBLE
         binding.tvMiniGuideEmpty.visibility = View.GONE
+        binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
         lifecycleScope.launch {
             if (channel.directStreamUrl != null) {
                 repository.getEpgFromPlaylist(session, channel.epgChannelId)
@@ -256,15 +257,32 @@ class ChannelListActivity : AppCompatActivity() {
                                 stopTimestamp = p.stopMillis / 1000
                             )
                         }
-                        showMiniGuideResult(listings)
+                        if (listings.isEmpty()) diagnoseEpgEmpty(session, channel) else showMiniGuideResult(listings)
                     }
-                    .onFailure { showMiniGuideResult(emptyList()) }
+                    .onFailure { diagnoseEpgEmpty(session, channel) }
                 return@launch
             }
             repository.getShortEpg(session, channel.streamId)
                 .onSuccess { response -> showMiniGuideResult(response.listings.orEmpty()) }
                 .onFailure { showMiniGuideResult(emptyList()) }
         }
+    }
+
+    /** Descobre e mostra EXATAMENTE por que não tem programação pra esse
+     * canal, em vez de só "não disponível" -- ajuda a saber se é porque a
+     * lista não declara guia nenhum, ou se declara mas esse canal
+     * específico não bate com nenhum ID do guia. */
+    private suspend fun diagnoseEpgEmpty(session: com.meuapp.iptvplayer.data.api.Session, channel: LiveStream) {
+        val diag = repository.diagnoseEpg(session, channel.epgChannelId)
+        val reason = when {
+            !diag.hasTvgId -> "este canal não tem um tvg-id na playlist (a lista não diz qual é o ID de programação dele)"
+            !diag.hasEpgUrlDeclared -> "esta playlist não declara um guia de programação (sem url-tvg/x-tvg-url no cabeçalho)"
+            diag.guideChannelCount == 0 -> "o guia declarado na lista não retornou nenhum canal (pode estar fora do ar ou vazio)"
+            !diag.hasMatchForThisChannel -> "o guia tem ${diag.guideChannelCount} canais, mas nenhum bate com o ID deste canal (\"${channel.epgChannelId}\")"
+            else -> "sem programação futura cadastrada pra este canal agora"
+        }
+        binding.tvMiniGuideEmpty.text = "Sem programação: $reason"
+        showMiniGuideResult(emptyList())
     }
 
     private fun showMiniGuideResult(listings: List<com.meuapp.iptvplayer.data.model.EpgListing>) {

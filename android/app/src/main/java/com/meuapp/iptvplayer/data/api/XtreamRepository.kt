@@ -311,6 +311,30 @@ class XtreamRepository(context: Context? = null) {
             .take(6)
     }
 
+    data class EpgDiagnostic(
+        val hasTvgId: Boolean,
+        val hasEpgUrlDeclared: Boolean,
+        val epgUrl: String?,
+        val guideChannelCount: Int,
+        val hasMatchForThisChannel: Boolean
+    )
+
+    /** Descobre exatamente ONDE a busca de programação está parando --
+     * usado só pra diagnóstico (ex: mostrar uma mensagem mais específica
+     * do que "não disponível" quando o EPG não aparece). */
+    suspend fun diagnoseEpg(session: Session, tvgId: String?): EpgDiagnostic = runCatching {
+        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
+        val epgUrl = playlistUrl?.let { epgUrlCache[it] }
+        val guide = if (playlistUrl != null) fetchXmlTvGuide(session) else emptyMap()
+        EpgDiagnostic(
+            hasTvgId = !tvgId.isNullOrBlank(),
+            hasEpgUrlDeclared = epgUrl != null,
+            epgUrl = epgUrl,
+            guideChannelCount = guide.size,
+            hasMatchForThisChannel = tvgId != null && guide.containsKey(tvgId.lowercase())
+        )
+    }.getOrDefault(EpgDiagnostic(false, false, null, 0, false))
+
     suspend fun login(session: Session): Result<AuthResponse> = runCatching {
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}"

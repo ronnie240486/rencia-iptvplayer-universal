@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="56dp"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:layout_marginEnd="8dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="56dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        app:cardCornerRadius="6dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="@color/surface_solid">
+
+        <ImageView
+            android:id="@+id/ivPoster"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:contentDescription="@null" />
+    </androidx.cardview.widget.CardView>
+
+    <TextView
+        android:id="@+id/tvPosterTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:textColor="@color/white"
+        android:textSize="9sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/tvPosterSub"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:visibility="gone" />
+
+</LinearLayout>

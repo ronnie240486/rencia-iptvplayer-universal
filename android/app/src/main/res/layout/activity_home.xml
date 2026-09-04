@@ -244,7 +244,7 @@
         android:layout_gravity="bottom"
         android:background="#CC0B0B0D"
         android:orientation="vertical"
-        android:paddingTop="10dp"
+        android:paddingTop="6dp"
         android:visibility="gone">
 
         <TextView
@@ -253,17 +253,17 @@
             android:layout_marginStart="16dp"
             android:text="CONTINUAR ASSISTINDO"
             android:textColor="#e6e4d8"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:textStyle="bold" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvContinueWatching"
             android:layout_width="match_parent"
-            android:layout_height="110dp"
+            android:layout_height="88dp"
             android:clipToPadding="false"
             android:orientation="horizontal"
             android:paddingHorizontal="12dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="10dp" />
+            android:paddingTop="4dp"
+            android:paddingBottom="6dp" />
     </LinearLayout>
 </FrameLayout>

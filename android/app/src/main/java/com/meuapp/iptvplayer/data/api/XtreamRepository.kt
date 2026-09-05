@@ -315,9 +315,10 @@ class XtreamRepository(context: Context? = null) {
      * mesmo em painéis sem API Xtream. Baixa e processa só uma vez por
      * sessão (fica em cache), e só guarda os canais que realmente existem
      * na playlist, pra não gastar memória com um guia inteiro à toa. */
-    private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> {
-        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return emptyMap()
-        val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return emptyMap()
+    private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@withContext emptyMap()
+        val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return@withContext emptyMap()
         // Compara tvg-id sem diferenciar maiúscula/minúscula -- é comum o
         // painel mandar "EPTV.Campinas" na playlist M3U e o guia XMLTV usar
         // "eptv.campinas" (ou vice-versa); sem isso, o casamento falhava
@@ -331,7 +332,7 @@ class XtreamRepository(context: Context? = null) {
             .map { XmlTvParser.normalizeChannelName(it) }
             .filter { it.isNotBlank() }
             .toSet()
-        if (tvgIds.isEmpty() && normalizedNames.isEmpty()) return emptyMap()
+        if (tvgIds.isEmpty() && normalizedNames.isEmpty()) return@withContext emptyMap()
 
         // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
         //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
@@ -357,7 +358,7 @@ class XtreamRepository(context: Context? = null) {
             // verdade, usa na hora.
             val alreadyChecked = xmlTvCache[epgUrl]
             if (alreadyChecked != null) {
-                if (alreadyChecked.isNotEmpty()) return alreadyChecked
+                if (alreadyChecked.isNotEmpty()) return@withContext alreadyChecked
                 continue
             }
             val xml = runCatching { fetchBody(epgUrl) }.getOrNull()
@@ -397,10 +398,10 @@ class XtreamRepository(context: Context? = null) {
             xmlTvCache[epgUrl] = remapped
             if (remapped.isNotEmpty()) {
                 epgUrlCache[playlistUrl] = epgUrl
-                return remapped
+                return@withContext remapped
             }
         }
-        return emptyMap()
+        return@withContext emptyMap()
     }
 
     /** Programação (agora + próximos) de UM canal específico, lida do guia

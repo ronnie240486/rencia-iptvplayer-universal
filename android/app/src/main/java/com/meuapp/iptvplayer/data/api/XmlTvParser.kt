@@ -86,6 +86,15 @@ object XmlTvParser {
                                 currentName = StringBuilder()
                             }
                         }
+                        // No formato XMLTV, todos os <channel> vêm ANTES de
+                        // qualquer <programme> -- assim que aparece o
+                        // primeiro <programme>, já sabemos todos os canais
+                        // que existem, não precisa continuar lendo o
+                        // arquivo inteiro (que pode ter dias de programação
+                        // de centenas de canais, bem mais pesado que só a
+                        // lista de canais). Isso é o que fazia essa etapa
+                        // demorar demais com guias grandes.
+                        "programme" -> return result
                     }
                 }
                 XmlPullParser.TEXT -> {

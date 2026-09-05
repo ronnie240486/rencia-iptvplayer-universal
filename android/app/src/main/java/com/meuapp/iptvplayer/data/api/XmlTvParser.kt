@@ -53,7 +53,13 @@ object XmlTvParser {
     fun normalizeChannelName(name: String): String {
         val noAccents = Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD)
             .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
-        return noAccents
+        // Guias "universais" (tipo iptv-epg.org) costumam prefixar TODO
+        // canal com o código do país, ex: "BR - SporTV2", "BR - ESPN" --
+        // sem tirar isso, "SporTV 2" (nome que vem na playlist do usuário)
+        // nunca batia com "BR - SporTV2" (nome que vem no guia), mesmo
+        // sendo claramente o mesmo canal.
+        val noCountryPrefix = noAccents.replace(Regex("^br\\b[\\s\\-:]*"), "")
+        return noCountryPrefix
             .replace(Regex("\\b(fhd|hd|sd|4k|fullhd|h265|h264|tv)\\b"), "")
             .replace(Regex("[^a-z0-9]"), "")
     }

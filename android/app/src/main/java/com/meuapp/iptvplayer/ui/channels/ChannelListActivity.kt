@@ -47,6 +47,7 @@ class ChannelListActivity : AppCompatActivity() {
     private lateinit var miniGuideAdapter: MiniGuideAdapter
     private var miniPlayer: ExoPlayer? = null
     private var miniPlayerListener: Player.Listener? = null
+    private var miniGuideJob: kotlinx.coroutines.Job? = null
     private var selectedChannel: LiveStream? = null
     private var muted = false
     private var loadedCategories: List<Category> = emptyList()

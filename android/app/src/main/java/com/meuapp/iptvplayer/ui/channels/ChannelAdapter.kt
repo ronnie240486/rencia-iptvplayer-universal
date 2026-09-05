@@ -3,23 +3,29 @@ package com.meuapp.iptvplayer.ui.channels
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import com.meuapp.iptvplayer.data.model.LiveStream
 import com.meuapp.iptvplayer.databinding.ItemChannelBinding
 
+private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<LiveStream>() {
+    override fun areItemsTheSame(oldItem: LiveStream, newItem: LiveStream): Boolean =
+        (oldItem.directStreamUrl ?: oldItem.streamId.toString()) == (newItem.directStreamUrl ?: newItem.streamId.toString())
+
+    override fun areContentsTheSame(oldItem: LiveStream, newItem: LiveStream): Boolean = oldItem == newItem
+}
+
 class ChannelAdapter(
     private val onClick: (LiveStream) -> Unit,
     private val onLongClick: (LiveStream) -> Unit
-) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
-
-    private val items = mutableListOf<LiveStream>()
-
-    fun submitList(newItems: List<LiveStream>) {
-        items.clear()
-        items.addAll(newItems)
-        notifyDataSetChanged()
-    }
+    // Usa ListAdapter (com DiffUtil) em vez de recarregar a lista inteira
+    // a cada troca de categoria -- notifyDataSetChanged() forçava
+    // reconstruir e redesenhar TODOS os itens visíveis de uma vez, na
+    // tela principal, o que podia travar por um instante em categorias
+    // com muitos canais. Agora só atualiza o que de fato mudou.
+) : ListAdapter<LiveStream, ChannelAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemChannelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -69,15 +75,13 @@ class ChannelAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val channel = items[position]
+        val channel = getItem(position)
         holder.channel = channel
         holder.binding.tvChannelName.text = channel.name
         holder.binding.ivIcon.load(channel.streamIcon) {
             crossfade(true)
         }
     }
-
-    override fun getItemCount() = items.size
 
     class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {
         var channel: LiveStream? = null

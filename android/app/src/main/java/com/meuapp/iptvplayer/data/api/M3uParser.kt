@@ -158,9 +158,20 @@ object M3uParser {
     }
 
     private fun extractAttribute(line: String, key: String): String? {
-        val regex = Regex("$key=[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)
+        val regex = attributeRegexCache.getOrPut(key) {
+            Regex("$key=[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)
+        }
         return regex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
     }
+
+    // Compilada uma vez só POR CHAVE (group-title, tvg-id...), não a cada
+    // linha -- montar uma Regex do zero toda vez que extractAttribute era
+    // chamado (4-5 vezes por canal, multiplicado por milhares de canais)
+    // significava dezenas de milhares de compilacões de regex à toa,
+    // deixando o carregamento de listas grandes bem mais lento do que
+    // precisava (chegava a demorar dezenas de segundos numa lista com
+    // milhares de canais).
+    private val attributeRegexCache = mutableMapOf<String, Regex>()
 
     fun toCategories(channels: List<ParsedChannel>): List<Category> =
         channels.map { it.groupTitle }.distinct()

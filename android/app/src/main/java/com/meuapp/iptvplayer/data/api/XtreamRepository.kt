@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.async
 import com.meuapp.iptvplayer.data.model.AuthResponse
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -379,7 +380,7 @@ class XtreamRepository(context: Context? = null) {
         val fetchJobs = candidates
             .filter { xmlTvCache[it] == null } // pula quem já sabe que é vazio
             .map { url ->
-                kotlinx.coroutines.async { url to fetchEpgBodyFast(url) }
+                async { url to fetchEpgBodyFast(url) }
             }
         val fetched = fetchJobs.map { it.await() }
 

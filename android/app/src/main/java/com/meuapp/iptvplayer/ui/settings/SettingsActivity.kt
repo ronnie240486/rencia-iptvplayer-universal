@@ -141,6 +141,13 @@ class SettingsActivity : AppCompatActivity() {
         }
         Toast.makeText(this, "Atualizando...", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
+            // Apaga o cache da lista ANTES de reativar -- sem isso, mesmo
+            // reativando o MAC, o app continuava usando a lista antiga
+            // guardada (a playlist geralmente é a mesma URL, então o cache
+            // "batia" de novo e nada mudava de verdade).
+            SessionStore.getSavedSession(this@SettingsActivity)?.playlistUrl?.let {
+                com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity).clearM3uCache(it)
+            }
             renciaRepository.authenticateByMac(mac)
                 .onSuccess { session ->
                     SessionStore.saveSession(this@SettingsActivity, session)

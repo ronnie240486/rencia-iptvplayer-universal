@@ -67,6 +67,11 @@ class LoginActivity : AppCompatActivity() {
 
         startCrestPulse()
 
+        // Se essa é uma instalação/atualização nova do APK, limpa o cache
+        // da lista antiga -- tem que fazer isso ANTES de qualquer checagem
+        // de "já tem lista salva?" mais abaixo.
+        com.meuapp.iptvplayer.util.InstallCacheGuard.clearCacheIfNewInstall(this)
+
         val session = SessionStore.getSavedSession(this)
         val savedMac = session?.mac?.takeIf { it.isNotBlank() }
         if (savedMac != null) {

@@ -119,6 +119,16 @@ class XtreamRepository(context: Context? = null) {
         }
     }
 
+    /** Apaga o cache (memória e disco) de uma playlist específica -- usado
+     * pelo botão "Atualizar conteúdo" em Ajustes, pra forçar buscar tudo
+     * de novo em vez de continuar usando a lista antiga guardada. */
+    fun clearM3uCache(playlistUrl: String?) {
+        if (playlistUrl.isNullOrBlank()) return
+        m3uCache.remove(playlistUrl)
+        epgUrlCache.remove(playlistUrl)
+        runCatching { m3uCacheFile(playlistUrl)?.delete() }
+    }
+
     private fun m3uCacheFile(playlistUrl: String): File? {
         val dir = appContext?.cacheDir ?: return null
         return File(dir, "m3u_cache_${kotlin.math.abs(playlistUrl.hashCode())}.m3u")

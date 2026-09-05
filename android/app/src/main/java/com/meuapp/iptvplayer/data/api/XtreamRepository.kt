@@ -338,11 +338,29 @@ class XtreamRepository(context: Context? = null) {
         val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
         for (epgUrl in candidates) {
-            xmlTvCache[epgUrl]?.let { if (it.isNotEmpty()) return it }
-            val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
-            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: continue
+            // IMPORTANTE: guarda em cache mesmo quando o resultado vem
+            // vazio (sem canal nenhum batendo) -- sem isso, toda vez que
+            // trocava de canal/categoria, tentava baixar os 3 endereços de
+            // guia de novo do ZERO (incluindo o arquivo grande do guia
+            // universal), mesmo já sabendo que nenhum deles tinha dado
+            // certo antes. Isso sozinho já causava a demora de vários
+            // segundos ao abrir categoria/canal. Só pula pro próximo
+            // candidato quando o cache diz "vazio" -- se tiver dado de
+            // verdade, usa na hora.
+            val alreadyChecked = xmlTvCache[epgUrl]
+            if (alreadyChecked != null) {
+                if (alreadyChecked.isNotEmpty()) return alreadyChecked
+                continue
+            }
+            val xml = runCatching { fetchBody(epgUrl) }.getOrNull()
+            if (xml == null) {
+                // Falha de rede de verdade (não "sem dados") -- não guarda
+                // em cache, vale tentar de novo na próxima vez.
+                continue
+            }
+            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
+            xmlTvCache[epgUrl] = parsed
             if (parsed.isNotEmpty()) {
-                xmlTvCache[epgUrl] = parsed
                 epgUrlCache[playlistUrl] = epgUrl
                 return parsed
             }

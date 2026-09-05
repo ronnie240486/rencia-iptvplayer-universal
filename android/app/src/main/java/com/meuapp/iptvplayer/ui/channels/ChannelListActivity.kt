@@ -142,9 +142,19 @@ class ChannelListActivity : AppCompatActivity() {
             override fun onPlaybackStateChanged(state: Int) {
                 when (state) {
                     Player.STATE_BUFFERING -> showMiniState("Carregando transmissão…", retryVisible = false)
-                    Player.STATE_READY -> showMiniState("AO VIVO", retryVisible = false)
+                    // Não mostra "AO VIVO" aqui ainda -- STATE_READY só
+                    // quer dizer que o player está pronto, mas o ÁUDIO
+                    // geralmente começa ANTES do primeiro quadro de vídeo
+                    // aparecer de verdade. Só mostra "AO VIVO" quando o
+                    // primeiro quadro é desenhado (onRenderedFirstFrame),
+                    // pra não dar a impressão de "som tocando com tela
+                    // preta" como se já estivesse tudo pronto.
                     Player.STATE_ENDED -> showMiniState("Transmissão encerrada", retryVisible = true)
                 }
+            }
+
+            override fun onRenderedFirstFrame() {
+                showMiniState("AO VIVO", retryVisible = false)
             }
 
             override fun onPlayerError(error: PlaybackException) {

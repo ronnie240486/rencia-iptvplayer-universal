@@ -278,7 +278,20 @@ class ChannelListActivity : AppCompatActivity() {
         binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
         lifecycleScope.launch {
             if (channel.directStreamUrl != null) {
-                repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
+                // Limite de tempo pra essa busca nunca ficar "pendurada"
+                // sem mostrar nada (nem a faixa, nem o aviso) -- se
+                // demorar demais (rede lenta tentando as 3 fontes de
+                // guia), desiste e mostra o aviso genérico em vez de
+                // deixar a área de programação em branco pra sempre.
+                val result = kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                    repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
+                }
+                if (result == null) {
+                    binding.tvMiniGuideEmpty.text = "Sem programação: a busca demorou demais e foi cancelada"
+                    showMiniGuideResult(emptyList())
+                    return@launch
+                }
+                result
                     .onSuccess { programmes ->
                         val listings = programmes.map { p ->
                             com.meuapp.iptvplayer.data.model.EpgListing(

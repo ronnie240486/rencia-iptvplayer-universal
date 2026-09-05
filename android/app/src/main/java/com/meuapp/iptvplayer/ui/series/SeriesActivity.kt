@@ -77,18 +77,24 @@ class SeriesActivity : AppCompatActivity() {
     private fun loadCategories() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
+        // Carrega com a sessão atual JÁ, sem esperar a checagem de "a
+        // lista mudou?" (que é uma chamada de rede separada e pode demorar
+        // até 20s se a rede estiver lenta) -- isso travava a tela inteira
+        // até essa checagem terminar.
         lifecycleScope.launch {
-            val activeSession = renciaRepository.refreshSessionIfChanged(session)
-                .getOrNull()
-                ?.also { SessionStore.saveSession(this@SeriesActivity, it) }
-                ?: session
-            repository.getSeriesCategories(activeSession)
+            repository.getSeriesCategories(session)
                 .onSuccess { sidebarAdapter.submitList(it) }
                 .onFailure {
                     binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
                     showError("Não foi possível carregar as categorias de séries")
                 }
             setLoading(false)
+        }
+        lifecycleScope.launch {
+            kotlinx.coroutines.withTimeoutOrNull(6000) { renciaRepository.refreshSessionIfChanged(session).getOrNull() }?.let { updated ->
+                SessionStore.saveSession(this@SeriesActivity, updated)
+                loadCategories()
+            }
         }
     }
 

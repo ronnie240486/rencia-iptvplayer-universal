@@ -148,17 +148,14 @@ class ChannelListActivity : AppCompatActivity() {
     private fun loadCategories() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
+        // Carrega as categorias JÁ, com a sessão atual -- não espera a
+        // checagem de "a lista mudou no painel?" terminar primeiro. Essa
+        // checagem faz uma chamada de rede separada que pode demorar até
+        // 20s se a rede estiver lenta, e isso estava travando a tela
+        // inteira (spinner infinito) até ela terminar, mesmo quando a
+        // sessão atual já era perfeitamente válida pra carregar os canais.
         lifecycleScope.launch {
-            // Confere na hora se a playlist ligada a esse MAC mudou no
-            // painel (ex: trocou de lista) -- sem isso, só descobria depois
-            // de até 5 minutos parado na tela Home, e enquanto isso toda
-            // categoria vinha vazia porque ainda apontava pro servidor
-            // antigo.
-            val activeSession = renciaRepository.refreshSessionIfChanged(session)
-                .getOrNull()
-                ?.also { SessionStore.saveSession(this@ChannelListActivity, it) }
-                ?: session
-            repository.getLiveCategories(activeSession)
+            repository.getLiveCategories(session)
                 .onSuccess { categories ->
                     sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories))
                     loadedCategories = categories
@@ -168,6 +165,16 @@ class ChannelListActivity : AppCompatActivity() {
                 }
                 .onFailure { showError("Não foi possível carregar as categorias: ${it.message}") }
             setLoading(false)
+        }
+        // Confere se a playlist mudou no painel (ex: trocou de lista) EM
+        // PARALELO, numa corrotina separada -- só recarrega a tela se de
+        // fato mudar algo, sem segurar o carregamento inicial esperando
+        // essa checagem terminar.
+        lifecycleScope.launch {
+            kotlinx.coroutines.withTimeoutOrNull(6000) { renciaRepository.refreshSessionIfChanged(session).getOrNull() }?.let { updated ->
+                SessionStore.saveSession(this@ChannelListActivity, updated)
+                loadCategories()
+            }
         }
     }
 

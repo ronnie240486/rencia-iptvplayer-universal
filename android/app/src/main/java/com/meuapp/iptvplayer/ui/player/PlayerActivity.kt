@@ -230,9 +230,12 @@ class PlayerActivity : AppCompatActivity() {
         val currentPlayer = player
         playerListener?.let { currentPlayer?.removeListener(it) }
         if (usingSharedPlayer) {
-            // Não libera -- é o player compartilhado com o mini player. O
-            // vídeo continua tocando; ao voltar pra tela de Canais, o mini
-            // player retoma ele exatamente de onde estava.
+            // Não libera -- é o player compartilhado com o mini player.
+            // IMPORTANTE: solta essa PlayerView da superfície de vídeo
+            // antes de sair -- sem isso, o vídeo ficava "grudado" nessa
+            // tela mesmo depois de fechada, e o mini player só recebia o
+            // áudio de volta (ficava sem imagem nenhuma, só som).
+            binding.playerView.player = null
             player = null
             return
         }

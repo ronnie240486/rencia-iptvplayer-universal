@@ -359,6 +359,12 @@ class ChannelListActivity : AppCompatActivity() {
         // tela cheia (SharedLivePlayer). Se pausasse ao sair pra tela
         // cheia, o vídeo pararia bem na hora da troca -- o objetivo é
         // exatamente o contrário: continuar tocando sem interrupção.
+        // MAS solta essa PlayerView da superfície de vídeo (sem pausar o
+        // player em si) -- se as duas telas (mini player e tela cheia)
+        // ficassem "grudadas" no mesmo player ao mesmo tempo, só uma
+        // conseguia mostrar a imagem de verdade; a outra ficava só com
+        // áudio, sem vídeo nenhum.
+        binding.miniPlayer.player = null
     }
 
     private fun setLoading(loading: Boolean) {

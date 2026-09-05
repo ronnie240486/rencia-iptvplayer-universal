@@ -181,6 +181,15 @@ class LoginActivity : AppCompatActivity() {
      * já que dá pra medir bytes baixados/total; senão, um progresso
      * simulado enquanto confere as categorias pela API). */
     private fun preloadContentThenContinue(session: Session) {
+        // Já tem a lista guardada de uma sessão anterior? Entra direto,
+        // sem mostrar barra de progresso nenhuma -- carregar de novo até
+        // 100% toda vez que abre o app não faz sentido se já foi salva.
+        if (xtreamRepository.hasCachedPlaylist(session)) {
+            startActivity(Intent(this, HomeActivity::class.java))
+            finish()
+            return
+        }
+
         binding.macSection.visibility = View.GONE
         binding.loadingSection.visibility = View.VISIBLE
         loadingStartMillis = System.currentTimeMillis()

@@ -124,6 +124,16 @@ class XtreamRepository(context: Context? = null) {
         return File(dir, "m3u_cache_${kotlin.math.abs(playlistUrl.hashCode())}.m3u")
     }
 
+    /** Checagem rápida (só olha se o arquivo existe, não lê nem processa
+     * nada) -- usado pra decidir se pula a tela de carregamento inteira e
+     * entra direto, sem mostrar barra de progresso nenhuma, quando já tem
+     * a lista guardada de uma sessão anterior. */
+    fun hasCachedPlaylist(session: Session): Boolean {
+        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return false
+        if (m3uCache.containsKey(playlistUrl)) return true
+        return m3uCacheFile(playlistUrl)?.exists() == true
+    }
+
     private fun normalizeBase(serverUrl: String): String =
         serverUrl.trimEnd('/')
 

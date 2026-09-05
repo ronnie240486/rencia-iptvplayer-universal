@@ -46,6 +46,7 @@ class ChannelListActivity : AppCompatActivity() {
     private lateinit var channelsLayoutManager: GridLayoutManager
     private lateinit var miniGuideAdapter: MiniGuideAdapter
     private var miniPlayer: ExoPlayer? = null
+    private var miniPlayerListener: Player.Listener? = null
     private var selectedChannel: LiveStream? = null
     private var muted = false
     private var loadedCategories: List<Category> = emptyList()
@@ -123,7 +124,16 @@ class ChannelListActivity : AppCompatActivity() {
         binding.miniPlayer.player = player
         binding.miniPlayer.useController = true
         binding.miniPlayer.controllerShowTimeoutMs = 4000
-        player.addListener(object : Player.Listener {
+        // Guarda o listener numa variável -- SEM isso, toda vez que essa
+        // tela é recriada (voltar da Home, app recriado pelo sistema...) um
+        // listener NOVO era adicionado no player COMPARTILHADO, sem nunca
+        // remover os antigos. Isso ia se acumulando (um listener a mais a
+        // cada vez que a tela reabre), cada um segurando uma referência
+        // pra uma tela já destruída -- com uso prolongado, isso enche de
+        // trabalho inútil toda troca de estado do vídeo e contribuía pros
+        // travamentos aparecerem em vários lugares diferentes.
+        miniPlayerListener?.let { player.removeListener(it) }
+        val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 when (state) {
                     Player.STATE_BUFFERING -> showMiniState("Carregando transmissão…", retryVisible = false)
@@ -135,7 +145,9 @@ class ChannelListActivity : AppCompatActivity() {
             override fun onPlayerError(error: PlaybackException) {
                 showMiniState("Não foi possível reproduzir este canal", retryVisible = true)
             }
-        })
+        }
+        miniPlayerListener = listener
+        player.addListener(listener)
         miniPlayer = player
     }
 
@@ -358,6 +370,12 @@ class ChannelListActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // SEMPRE remove o listener antes de destruir essa tela -- mesmo
+        // quando não é pra encerrar o player de vez (ex: o sistema recriou
+        // essa Activity), sem isso o listener antigo (com referência pra
+        // essa tela já destruída) ficava acumulando pra sempre no player
+        // compartilhado, um a mais a cada vez que essa tela reabria.
+        miniPlayerListener?.let { miniPlayer?.removeListener(it) }
         // Só encerra o player de verdade quando está saindo de Live TV
         // (voltou pra Home) -- não ao só abrir/fechar a tela cheia por
         // cima (isso não passa por onDestroy, só onPause/onResume).
@@ -365,6 +383,7 @@ class ChannelListActivity : AppCompatActivity() {
             SharedLivePlayer.release()
         }
         miniPlayer = null
+        miniPlayerListener = null
         super.onDestroy()
     }
 }

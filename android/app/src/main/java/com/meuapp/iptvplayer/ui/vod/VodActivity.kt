@@ -92,8 +92,13 @@ class VodActivity : AppCompatActivity() {
             repository.getVodCategories(session)
                 .onSuccess { categories -> categoryAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories)) }
                 .onFailure {
-                    binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
-                    showError("Não foi possível carregar as categorias de filmes")
+                    // Sair da tela antes da busca terminar cancela ela
+                    // sozinho (Android fazendo isso) -- não é erro de
+                    // verdade, não precisa assustar o usuário com aviso.
+                    if (it !is kotlinx.coroutines.CancellationException) {
+                        binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
+                        showError("Não foi possível carregar as categorias de filmes")
+                    }
                 }
             setLoading(false)
         }
@@ -120,9 +125,11 @@ class VodActivity : AppCompatActivity() {
                     binding.toolbar.tvSubtitle.text = "$categoryName · ${movies.size} filmes"
                 }
                 .onFailure {
-                    gridAdapter.submitList(emptyList())
-                    binding.toolbar.tvSubtitle.text = "$categoryName · erro ao carregar"
-                    showError("Não foi possível carregar os filmes desta categoria")
+                    if (it !is kotlinx.coroutines.CancellationException) {
+                        gridAdapter.submitList(emptyList())
+                        binding.toolbar.tvSubtitle.text = "$categoryName · erro ao carregar"
+                        showError("Não foi possível carregar os filmes desta categoria")
+                    }
                 }
             setLoading(false)
         }

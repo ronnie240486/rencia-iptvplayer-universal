@@ -85,8 +85,10 @@ class SeriesActivity : AppCompatActivity() {
             repository.getSeriesCategories(session)
                 .onSuccess { sidebarAdapter.submitList(it) }
                 .onFailure {
-                    binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
-                    showError("Não foi possível carregar as categorias de séries")
+                    if (it !is kotlinx.coroutines.CancellationException) {
+                        binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
+                        showError("Não foi possível carregar as categorias de séries")
+                    }
                 }
             setLoading(false)
         }
@@ -113,9 +115,11 @@ class SeriesActivity : AppCompatActivity() {
                     binding.toolbar.tvSubtitle.text = "$categoryName · ${series.size} séries"
                 }
                 .onFailure {
-                    gridAdapter.submitList(emptyList())
-                    binding.toolbar.tvSubtitle.text = "$categoryName · erro ao carregar"
-                    showError("Não foi possível carregar as séries desta categoria")
+                    if (it !is kotlinx.coroutines.CancellationException) {
+                        gridAdapter.submitList(emptyList())
+                        binding.toolbar.tvSubtitle.text = "$categoryName · erro ao carregar"
+                        showError("Não foi possível carregar as séries desta categoria")
+                    }
                 }
             setLoading(false)
         }

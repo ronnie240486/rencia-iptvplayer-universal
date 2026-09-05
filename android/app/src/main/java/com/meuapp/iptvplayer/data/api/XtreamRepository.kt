@@ -134,6 +134,19 @@ class XtreamRepository(context: Context? = null) {
         return File(dir, "m3u_cache_${kotlin.math.abs(playlistUrl.hashCode())}.m3u")
     }
 
+    /** Grava em disco de um jeito seguro contra o app ser morto no meio da
+     * escrita (ex: usuário apertou "OK" numa mensagem de "não está
+     * respondendo" bem nessa hora) -- escreve num arquivo temporário
+     * primeiro e só troca pelo definitivo quando termina de escrever tudo.
+     * Sem isso, um arquivo cortado pela metade virava um cache "válido mas
+     * vazio/quebrado" que nunca mais carregava nada até limpar os dados
+     * do app manualmente. */
+    private fun writeCacheFileSafely(file: File, content: String) {
+        val tempFile = File(file.parentFile, "${file.name}.tmp")
+        tempFile.writeText(content)
+        tempFile.renameTo(file)
+    }
+
     /** Checagem rápida (só olha se o arquivo existe, não lê nem processa
      * nada) -- usado pra decidir se pula a tela de carregamento inteira e
      * entra direto, sem mostrar barra de progresso nenhuma, quando já tem
@@ -251,7 +264,7 @@ class XtreamRepository(context: Context? = null) {
             val parsed = M3uParser.parse(text)
             if (parsed.isNotEmpty()) {
                 m3uCache[playlistUrl] = parsed
-                m3uCacheFile(playlistUrl)?.let { file -> runCatching { file.writeText(text) } }
+                m3uCacheFile(playlistUrl)?.let { file -> runCatching { writeCacheFileSafely(file, text) } }
             }
         }
     }
@@ -291,7 +304,7 @@ class XtreamRepository(context: Context? = null) {
             error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
         }
         m3uCache[playlistUrl] = parsed
-        m3uCacheFile(playlistUrl)?.let { file -> runCatching { file.writeText(body) } }
+        m3uCacheFile(playlistUrl)?.let { file -> runCatching { writeCacheFileSafely(file, body) } }
         return parsed
     }
 

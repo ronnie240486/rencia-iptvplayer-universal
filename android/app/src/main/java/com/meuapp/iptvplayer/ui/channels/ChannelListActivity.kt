@@ -175,7 +175,7 @@ class ChannelListActivity : AppCompatActivity() {
                         showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
                     }
                 }
-                .onFailure { showError("Não foi possível carregar as categorias: ${it.message}") }
+                .onFailure { showErrorUnlessCancelled("Não foi possível carregar as categorias", it) }
             setLoading(false)
         }
         // Confere se a playlist mudou no painel (ex: trocou de lista) EM
@@ -214,7 +214,7 @@ class ChannelListActivity : AppCompatActivity() {
                         displayChannels(channels, categoryName)
                     }
                 }
-                .onFailure { showError("Não foi possível carregar os canais: ${it.message}") }
+                .onFailure { showErrorUnlessCancelled("Não foi possível carregar os canais", it) }
             setLoading(false)
         }
     }
@@ -367,6 +367,16 @@ class ChannelListActivity : AppCompatActivity() {
 
     private fun showError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    /** Sair da tela ANTES de uma busca terminar cancela ela sozinho (é o
+     * Android fazendo isso, não um erro de verdade) -- sem esse filtro, o
+     * usuário via um aviso assustador ("Job was cancelled") só por ter
+     * saído da tela rápido demais, às vezes até aparecendo bem depois, na
+     * tela seguinte. */
+    private fun showErrorUnlessCancelled(prefix: String, error: Throwable) {
+        if (error is kotlinx.coroutines.CancellationException) return
+        showError("$prefix: ${error.message}")
     }
 
     override fun onDestroy() {

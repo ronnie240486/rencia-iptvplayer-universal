@@ -117,7 +117,7 @@ class PlayerActivity : AppCompatActivity() {
                 repository.getShortEpg(session, streamId).getOrNull()
                     ?.listings?.firstOrNull()?.let { decodeTitle(it.titleValue()) }
             } else {
-                repository.getEpgFromPlaylist(session, epgChannelId).getOrNull()
+                repository.getEpgFromPlaylist(session, epgChannelId, channelName).getOrNull()
                     ?.firstOrNull()?.title
             }
             if (!title.isNullOrBlank()) {

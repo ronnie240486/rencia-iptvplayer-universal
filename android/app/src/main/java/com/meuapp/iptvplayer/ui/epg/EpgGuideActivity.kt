@@ -64,7 +64,7 @@ class EpgGuideActivity : AppCompatActivity() {
                         val channels = repository.getLiveStreams(session, category.categoryId).getOrNull().orEmpty()
                         for (channel in channels.take(6)) {
                             val listings: List<EpgListing> = if (channel.directStreamUrl != null) {
-                                repository.getEpgFromPlaylist(session, channel.epgChannelId).getOrNull().orEmpty().map { p ->
+                                repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name).getOrNull().orEmpty().map { p ->
                                     EpgListing(
                                         id = "", titleBase64 = p.title, descriptionBase64 = null,
                                         start = null, end = null,

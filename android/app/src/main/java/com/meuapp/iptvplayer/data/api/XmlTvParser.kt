@@ -3,6 +3,7 @@ package com.meuapp.iptvplayer.data.api
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
+import java.text.Normalizer
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -44,10 +45,77 @@ object XmlTvParser {
         return null
     }
 
-    /** Devolve os programas agrupados por ID de canal (o mesmo valor do
-     * tvg-id da playlist M3U) -- só mantém canais/`ids` pedidos, pra não
-     * gastar memória guardando um guia inteiro (que pode ter centenas de
-     * canais) quando só interessam alguns poucos por vez. */
+    /** Deixa o texto num formato "neutro" pra comparar nomes de canal
+     * mesmo quando escritos de jeitos diferentes (maiúscula/minúscula,
+     * acento, espaço, "HD"/"FHD" no final) -- é assim que dá pra achar
+     * "SporTV 2" na playlist do usuário batendo com "SPORTV2 HD" dentro
+     * do guia, mesmo os dois nomes não sendo idênticos. */
+    fun normalizeChannelName(name: String): String {
+        val noAccents = Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD)
+            .replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+        return noAccents
+            .replace(Regex("\\b(fhd|hd|sd|4k|fullhd|h265|h264|tv)\\b"), "")
+            .replace(Regex("[^a-z0-9]"), "")
+    }
+
+    /** Primeira passagem: só lê os blocos <channel id="X"><display-name>
+     * -- rápido e leve (um guia tem poucas centenas de canais, bem menos
+     * que a quantidade de programas). Serve pra descobrir qual ID o guia
+     * usa pra cada canal, mesmo quando esse ID não bate com o tvg-id da
+     * playlist M3U do usuário. */
+    fun parseChannelNames(xml: String): Map<String, String> {
+        val result = mutableMapOf<String, String>() // nome normalizado -> id do canal no guia
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(StringReader(xml))
+
+        var eventType = parser.eventType
+        var currentId: String? = null
+        var inDisplayName = false
+        var currentName: StringBuilder? = null
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            when (eventType) {
+                XmlPullParser.START_TAG -> {
+                    when (parser.name) {
+                        "channel" -> currentId = parser.getAttributeValue(null, "id")
+                        "display-name" -> {
+                            if (currentId != null) {
+                                inDisplayName = true
+                                currentName = StringBuilder()
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.TEXT -> {
+                    if (inDisplayName) currentName?.append(parser.text)
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "display-name" -> {
+                            inDisplayName = false
+                            val id = currentId
+                            val name = currentName?.toString()?.trim()
+                            if (id != null && !name.isNullOrBlank()) {
+                                val normalized = normalizeChannelName(name)
+                                if (normalized.isNotBlank()) result.putIfAbsent(normalized, id)
+                            }
+                        }
+                        "channel" -> currentId = null
+                    }
+                }
+            }
+            eventType = parser.next()
+        }
+        return result
+    }
+
+    /** Segunda passagem: lê os programas de verdade, só guardando os que
+     * pertencem aos IDs de canal que já sabemos que interessam (achados
+     * na primeira passagem, por tvg-id direto ou por nome batendo) -- pra
+     * não gastar memória guardando a programação de um guia inteiro à
+     * toa quando só interessam alguns canais. */
     fun parse(xml: String, channelIdsFilter: Set<String>? = null): Map<String, List<XmlTvProgramme>> {
         val result = mutableMapOf<String, MutableList<XmlTvProgramme>>()
         val factory = XmlPullParserFactory.newInstance()

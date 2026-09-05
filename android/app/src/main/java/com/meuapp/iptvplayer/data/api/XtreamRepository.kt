@@ -323,7 +323,15 @@ class XtreamRepository(context: Context? = null) {
         // "eptv.campinas" (ou vice-versa); sem isso, o casamento falhava
         // silenciosamente mesmo quando os dois IDs eram "o mesmo canal".
         val tvgIds = channels.mapNotNull { it.tvgId?.lowercase() }.toSet()
-        if (tvgIds.isEmpty()) return emptyMap()
+        // Nomes normalizados dos canais da playlist -- usado como PLANO B
+        // quando o tvg-id não bate com nada no guia (muito comum com guias
+        // "universais" de terceiros, que usam seu próprio jeito de nomear
+        // os canais, diferente do tvg-id que o provedor do usuário usa).
+        val normalizedNames = channels.map { M3uParser.stripQualitySuffixPublic(it.name) }
+            .map { XmlTvParser.normalizeChannelName(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (tvgIds.isEmpty() && normalizedNames.isEmpty()) return emptyMap()
 
         // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
         //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
@@ -358,11 +366,38 @@ class XtreamRepository(context: Context? = null) {
                 // em cache, vale tentar de novo na próxima vez.
                 continue
             }
-            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
-            xmlTvCache[epgUrl] = parsed
-            if (parsed.isNotEmpty()) {
+
+            // Primeiro descobre que IDs o guia usa pra cada canal (lendo só
+            // os nomes, rápido) -- resolve pelo tvg-id direto OU pelo nome
+            // do canal batendo (normalizado), o que der certo primeiro.
+            // Guarda um mapa de volta (id do guia -> nossa chave de busca)
+            // pra depois conseguir procurar usando o mesmo tvg-id/nome que
+            // o resto do app já usa.
+            val guideNameToId = runCatching { XmlTvParser.parseChannelNames(xml) }.getOrDefault(emptyMap())
+            val relevantGuideIds = mutableSetOf<String>()
+            val guideIdToOurKey = mutableMapOf<String, String>()
+            tvgIds.forEach { id ->
+                relevantGuideIds.add(id)
+                guideIdToOurKey[id] = id
+            }
+            normalizedNames.forEach { normName ->
+                guideNameToId[normName]?.let { guideId ->
+                    val guideIdLower = guideId.lowercase()
+                    relevantGuideIds.add(guideIdLower)
+                    guideIdToOurKey[guideIdLower] = normName
+                }
+            }
+
+            val parsedByGuideId = runCatching { XmlTvParser.parse(xml, relevantGuideIds) }.getOrDefault(emptyMap())
+            val remapped = mutableMapOf<String, List<XmlTvProgramme>>()
+            parsedByGuideId.forEach { (guideId, programmes) ->
+                remapped[guideIdToOurKey[guideId] ?: guideId] = programmes
+            }
+
+            xmlTvCache[epgUrl] = remapped
+            if (remapped.isNotEmpty()) {
                 epgUrlCache[playlistUrl] = epgUrl
-                return parsed
+                return remapped
             }
         }
         return emptyMap()
@@ -370,12 +405,18 @@ class XtreamRepository(context: Context? = null) {
 
     /** Programação (agora + próximos) de UM canal específico, lida do guia
      * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id
-     * de verdade pra usar o get_short_epg da API Xtream). */
-    suspend fun getEpgFromPlaylist(session: Session, tvgId: String?): Result<List<XmlTvProgramme>> = runCatching {
-        if (tvgId.isNullOrBlank()) return@runCatching emptyList()
+     * de verdade pra usar o get_short_epg da API Xtream). Tenta primeiro
+     * pelo tvg-id (mais preciso); se não achar nada, tenta pelo NOME do
+     * canal (mais tolerante a guias de terceiros que nomeiam diferente). */
+    suspend fun getEpgFromPlaylist(session: Session, tvgId: String?, channelName: String? = null): Result<List<XmlTvProgramme>> = runCatching {
+        if (tvgId.isNullOrBlank() && channelName.isNullOrBlank()) return@runCatching emptyList()
         val guide = fetchXmlTvGuide(session)
         val now = System.currentTimeMillis()
-        guide[tvgId.lowercase()].orEmpty()
+        val byId = tvgId?.lowercase()?.let { guide[it] }
+        val byName = if (byId.isNullOrEmpty() && !channelName.isNullOrBlank()) {
+            guide[XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName))]
+        } else null
+        (byId ?: byName).orEmpty()
             .filter { it.stopMillis >= now }
             .sortedBy { it.startMillis }
             .take(6)
@@ -392,19 +433,22 @@ class XtreamRepository(context: Context? = null) {
     /** Descobre exatamente ONDE a busca de programação está parando --
      * usado só pra diagnóstico (ex: mostrar uma mensagem mais específica
      * do que "não disponível" quando o EPG não aparece). */
-    suspend fun diagnoseEpg(session: Session, tvgId: String?): EpgDiagnostic = runCatching {
+    suspend fun diagnoseEpg(session: Session, tvgId: String?, channelName: String? = null): EpgDiagnostic = runCatching {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
         // Chama fetchXmlTvGuide PRIMEIRO -- se conseguir usando o endereço
         // padrão xmltv.php (mesmo sem a playlist declarar isso), o cache
         // já fica atualizado com a URL que funcionou de verdade.
         val guide = if (playlistUrl != null) fetchXmlTvGuide(session) else emptyMap()
         val epgUrl = playlistUrl?.let { epgUrlCache[it] }
+        val matchById = tvgId != null && guide.containsKey(tvgId.lowercase())
+        val matchByName = !matchById && !channelName.isNullOrBlank() &&
+            guide.containsKey(XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName)))
         EpgDiagnostic(
             hasTvgId = !tvgId.isNullOrBlank(),
             hasEpgUrlDeclared = epgUrl != null,
             epgUrl = epgUrl,
             guideChannelCount = guide.size,
-            hasMatchForThisChannel = tvgId != null && guide.containsKey(tvgId.lowercase())
+            hasMatchForThisChannel = matchById || matchByName
         )
     }.getOrDefault(EpgDiagnostic(false, false, null, 0, false))
 

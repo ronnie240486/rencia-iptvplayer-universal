@@ -278,7 +278,7 @@ class ChannelListActivity : AppCompatActivity() {
         binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
         lifecycleScope.launch {
             if (channel.directStreamUrl != null) {
-                repository.getEpgFromPlaylist(session, channel.epgChannelId)
+                repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
                     .onSuccess { programmes ->
                         val listings = programmes.map { p ->
                             com.meuapp.iptvplayer.data.model.EpgListing(
@@ -307,7 +307,7 @@ class ChannelListActivity : AppCompatActivity() {
      * lista não declara guia nenhum, ou se declara mas esse canal
      * específico não bate com nenhum ID do guia. */
     private suspend fun diagnoseEpgEmpty(session: com.meuapp.iptvplayer.data.api.Session, channel: LiveStream) {
-        val diag = repository.diagnoseEpg(session, channel.epgChannelId)
+        val diag = repository.diagnoseEpg(session, channel.epgChannelId, channel.name)
         val reason = when {
             !diag.hasTvgId -> "este canal não tem um tvg-id na playlist (a lista não diz qual é o ID de programação dele)"
             !diag.hasEpgUrlDeclared -> "esta lista não declara guia de programação, o endereço padrão do painel (xmltv.php) e o guia universal (iptv-epg.org) também não têm dado nenhum pra este canal"

@@ -157,6 +157,10 @@ object M3uParser {
         return result.ifBlank { name.trim() }
     }
 
+    /** Versão pública -- usada fora do parser (ex: casamento de EPG por
+     * nome de canal) pra remover sufixos de qualidade antes de comparar. */
+    fun stripQualitySuffixPublic(name: String): String = stripQualitySuffix(name)
+
     private fun extractAttribute(line: String, key: String): String? {
         val regex = attributeRegexCache.getOrPut(key) {
             Regex("$key=[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)

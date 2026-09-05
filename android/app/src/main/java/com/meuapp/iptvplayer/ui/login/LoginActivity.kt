@@ -69,7 +69,9 @@ class LoginActivity : AppCompatActivity() {
 
         // Se essa é uma instalação/atualização nova do APK, limpa o cache
         // da lista antiga -- tem que fazer isso ANTES de qualquer checagem
-        // de "já tem lista salva?" mais abaixo.
+        // de "já tem lista salva?" mais abaixo (por isso síncrono aqui:
+        // rodar em segundo plano criaria uma corrida com a ativação
+        // automática do onStart, que dispara logo em seguida).
         com.meuapp.iptvplayer.util.InstallCacheGuard.clearCacheIfNewInstall(this)
 
         val session = SessionStore.getSavedSession(this)

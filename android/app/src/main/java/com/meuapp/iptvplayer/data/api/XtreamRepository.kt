@@ -147,7 +147,7 @@ class XtreamRepository(context: Context? = null) {
     private fun normalizeBase(serverUrl: String): String =
         serverUrl.trimEnd('/')
 
-    private suspend fun fetchBody(url: String): String {
+    private suspend fun fetchBody(url: String): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val response = api.call(url)
         if (!response.isSuccessful) {
             error("O servidor respondeu com erro HTTP ${response.code()} para esta chamada.")
@@ -166,7 +166,7 @@ class XtreamRepository(context: Context? = null) {
         if (body.isEmpty()) {
             error("O servidor respondeu vazio. Confira se o usuário/senha/servidor da playlist estão corretos.")
         }
-        return body
+        body
     }
 
     private inline fun <reified T> parseJson(body: String): T = try {

@@ -47,7 +47,11 @@ class SeriesActivity : AppCompatActivity() {
         sidebarAdapter = CategorySidebarAdapter(
             barEnabled = AppearancePrefs.isCategoryBarEnabled(this),
             barColorHex = AppearancePrefs.getCategoryBarColor(this)
-        ) { category -> loadSeries(category.categoryId, category.categoryName) }
+        ) { category ->
+            com.meuapp.iptvplayer.util.AdultContentGuard.guardCategorySelection(this, category) {
+                loadSeries(category.categoryId, category.categoryName)
+            }
+        }
 
         gridAdapter = SeriesAdapter(
             lifecycleScope = lifecycleScope,
@@ -83,7 +87,7 @@ class SeriesActivity : AppCompatActivity() {
         // até essa checagem terminar.
         lifecycleScope.launch {
             repository.getSeriesCategories(session)
-                .onSuccess { sidebarAdapter.submitList(it) }
+                .onSuccess { sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(it)) }
                 .onFailure {
                     if (it !is kotlinx.coroutines.CancellationException) {
                         binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"

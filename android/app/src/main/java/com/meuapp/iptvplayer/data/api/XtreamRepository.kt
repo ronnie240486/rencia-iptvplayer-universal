@@ -428,7 +428,9 @@ class XtreamRepository(context: Context? = null) {
         val hasEpgUrlDeclared: Boolean,
         val epgUrl: String?,
         val guideChannelCount: Int,
-        val hasMatchForThisChannel: Boolean
+        val hasMatchForThisChannel: Boolean,
+        val searchedTvgId: String? = null,
+        val searchedNormalizedName: String? = null
     )
 
     /** Descobre exatamente ONDE a busca de programação está parando --
@@ -441,15 +443,17 @@ class XtreamRepository(context: Context? = null) {
         // já fica atualizado com a URL que funcionou de verdade.
         val guide = if (playlistUrl != null) fetchXmlTvGuide(session) else emptyMap()
         val epgUrl = playlistUrl?.let { epgUrlCache[it] }
+        val normalizedName = channelName?.let { XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(it)) }
         val matchById = tvgId != null && guide.containsKey(tvgId.lowercase())
-        val matchByName = !matchById && !channelName.isNullOrBlank() &&
-            guide.containsKey(XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName)))
+        val matchByName = !matchById && !normalizedName.isNullOrBlank() && guide.containsKey(normalizedName)
         EpgDiagnostic(
             hasTvgId = !tvgId.isNullOrBlank(),
             hasEpgUrlDeclared = epgUrl != null,
             epgUrl = epgUrl,
             guideChannelCount = guide.size,
-            hasMatchForThisChannel = matchById || matchByName
+            hasMatchForThisChannel = matchById || matchByName,
+            searchedTvgId = tvgId,
+            searchedNormalizedName = normalizedName
         )
     }.getOrDefault(EpgDiagnostic(false, false, null, 0, false))
 

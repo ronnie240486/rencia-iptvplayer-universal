@@ -84,6 +84,16 @@ class XtreamRepository(context: Context? = null) {
         })
         .build()
 
+    // Cliente separado, com timeout bem mais curto, só pra buscar guias de
+    // EPG externos (xmltv.php do painel, guia universal) -- essas fontes
+    // são "bônus" (se falharem, o app funciona igual, só sem programação),
+    // então não vale a pena esperar até 35s por CADA uma delas. Falha
+    // rápido em vez de segurar o usuário esperando minutos.
+    private val epgClient = client.newBuilder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
     // Esse player é "universal" (qualquer provedor Xtream Codes), mas cada
     // painel implementa a API de um jeito ligeiramente diferente -- em
     // especial, campos como category_id/stream_id/exp_date às vezes vêm
@@ -315,6 +325,16 @@ class XtreamRepository(context: Context? = null) {
      * mesmo em painéis sem API Xtream. Baixa e processa só uma vez por
      * sessão (fica em cache), e só guarda os canais que realmente existem
      * na playlist, pra não gastar memória com um guia inteiro à toa. */
+    /** Busca um endereço de EPG usando o cliente de timeout curto -- só
+     * pra fontes externas de guia (que são "bônus", opcionais). */
+    private fun fetchEpgBodyFast(url: String): String? = runCatching {
+        val request = okhttp3.Request.Builder().url(url).build()
+        val response = epgClient.newCall(request).execute()
+        val body = if (response.isSuccessful) response.body?.string() else null
+        response.close()
+        body?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
     private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@withContext emptyMap()
@@ -346,22 +366,24 @@ class XtreamRepository(context: Context? = null) {
         val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
         val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
-        for (epgUrl in candidates) {
-            // IMPORTANTE: guarda em cache mesmo quando o resultado vem
-            // vazio (sem canal nenhum batendo) -- sem isso, toda vez que
-            // trocava de canal/categoria, tentava baixar os 3 endereços de
-            // guia de novo do ZERO (incluindo o arquivo grande do guia
-            // universal), mesmo já sabendo que nenhum deles tinha dado
-            // certo antes. Isso sozinho já causava a demora de vários
-            // segundos ao abrir categoria/canal. Só pula pro próximo
-            // candidato quando o cache diz "vazio" -- se tiver dado de
-            // verdade, usa na hora.
-            val alreadyChecked = xmlTvCache[epgUrl]
-            if (alreadyChecked != null) {
-                if (alreadyChecked.isNotEmpty()) return@withContext alreadyChecked
-                continue
+        // Se já sabe (por cache) que algum candidato tem dado de verdade,
+        // usa na hora sem baixar nada.
+        candidates.firstNotNullOfOrNull { url -> xmlTvCache[url]?.takeIf { it.isNotEmpty() } }
+            ?.let { return@withContext it }
+
+        // Testa as 3 fontes AO MESMO TEMPO (não uma depois da outra) --
+        // cada chamada de rede pode demorar até dezenas de segundos pra
+        // desistir sozinha; testando uma de cada vez, o tempo total podia
+        // passar de 1 minuto. Em paralelo, o tempo total é o da mais
+        // demorada, não a soma de todas.
+        val fetchJobs = candidates
+            .filter { xmlTvCache[it] == null } // pula quem já sabe que é vazio
+            .map { url ->
+                kotlinx.coroutines.async { url to fetchEpgBodyFast(url) }
             }
-            val xml = runCatching { fetchBody(epgUrl) }.getOrNull()
+        val fetched = fetchJobs.map { it.await() }
+
+        for ((epgUrl, xml) in fetched) {
             if (xml == null) {
                 // Falha de rede de verdade (não "sem dados") -- não guarda
                 // em cache, vale tentar de novo na próxima vez.
@@ -403,6 +425,7 @@ class XtreamRepository(context: Context? = null) {
         }
         return@withContext emptyMap()
     }
+
 
     /** Programação (agora + próximos) de UM canal específico, lida do guia
      * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id

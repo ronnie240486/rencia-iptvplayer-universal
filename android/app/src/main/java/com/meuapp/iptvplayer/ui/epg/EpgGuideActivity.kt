@@ -52,7 +52,12 @@ class EpgGuideActivity : AppCompatActivity() {
         val session = SessionStore.getSavedSession(this) ?: return
         binding.progressBar.visibility = View.VISIBLE
         lifecycleScope.launch {
-            repository.getLiveCategories(session)
+            // Limite de segurança pra essa tela nunca ficar travada de
+            // vez -- mesmo com a busca de EPG mais rápida agora, testar
+            // varios canais de uma vez ainda pode somar tempo; desiste
+            // depois de 40s em vez de deixar o usuário preso na tela.
+            val completed = kotlinx.coroutines.withTimeoutOrNull(40_000) {
+                repository.getLiveCategories(session)
                 .onSuccess { categories ->
                     val safeCategories = AdultContentGuard.sortWithAdultLast(categories)
                         .filterNot { AdultContentGuard.isAdultCategory(it.categoryName) }
@@ -86,6 +91,10 @@ class EpgGuideActivity : AppCompatActivity() {
                 .onFailure {
                     Toast.makeText(this@EpgGuideActivity, "Não foi possível carregar o guia: ${it.message}", Toast.LENGTH_LONG).show()
                 }
+            }
+            if (completed == null) {
+                Toast.makeText(this@EpgGuideActivity, "Demorou demais pra carregar o guia -- tente de novo", Toast.LENGTH_LONG).show()
+            }
             binding.progressBar.visibility = View.GONE
         }
     }

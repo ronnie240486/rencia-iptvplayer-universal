@@ -5,6 +5,9 @@ import android.util.Base64
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
@@ -48,6 +51,7 @@ class PlayerActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        hideSystemBars()
 
         streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
         channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
@@ -177,7 +181,13 @@ class PlayerActivity : AppCompatActivity() {
                         binding.tvPlaybackError.visibility = View.GONE
                     }
                     Player.STATE_READY -> {
-                        binding.progressBar.visibility = View.GONE
+                        // Não esconde o "carregando" aqui ainda -- STATE_READY
+                        // só quer dizer que o player está pronto pra tocar,
+                        // mas o áudio costuma começar ANTES do primeiro
+                        // quadro de vídeo aparecer de verdade. Esconde só
+                        // quando o primeiro quadro realmente é desenhado
+                        // (onRenderedFirstFrame), pra não mostrar uma tela
+                        // preta com som tocando como se estivesse "pronto".
                         binding.tvPlaybackError.visibility = View.GONE
                         binding.btnRetryPlayer.visibility = View.GONE
                     }
@@ -188,6 +198,10 @@ class PlayerActivity : AppCompatActivity() {
                         binding.btnRetryPlayer.visibility = View.VISIBLE
                     }
                 }
+            }
+
+            override fun onRenderedFirstFrame() {
+                binding.progressBar.visibility = View.GONE
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -241,5 +255,22 @@ class PlayerActivity : AppCompatActivity() {
         }
         currentPlayer?.release()
         player = null
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    /** Tela cheia de verdade: some com a barra de status e a barra de
+     * navegação do sistema (a "faixa" que ficava aparecendo do lado,
+     * tomando espaço da imagem) -- sem isso, o vídeo não usava a tela
+     * inteira de verdade. */
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
     }
 }

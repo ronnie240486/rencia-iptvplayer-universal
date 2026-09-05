@@ -78,9 +78,12 @@ class ChannelAdapter(
         val channel = getItem(position)
         holder.channel = channel
         holder.binding.tvChannelName.text = channel.name
-        holder.binding.ivIcon.load(channel.streamIcon) {
-            crossfade(true)
-        }
+        // Sem "crossfade" aqui -- numa lista com muitos itens, cada
+        // animação de logo aparecendo suavemente soma um pouquinho de
+        // trabalho extra durante rolagem rápida (muitos itens reciclando
+        // ao mesmo tempo), o que causava umas travadinhas passageiras ao
+        // descer a lista. As logos são pequenas, não faz falta.
+        holder.binding.ivIcon.load(channel.streamIcon)
     }
 
     class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {

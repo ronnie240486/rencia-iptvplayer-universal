@@ -99,6 +99,11 @@ class ChannelListActivity : AppCompatActivity() {
         )
         binding.rvChannels.layoutManager = GridLayoutManager(this, 2).also { channelsLayoutManager = it }
         binding.rvChannels.adapter = channelAdapter
+        // Guarda mais views recicladas prontas durante rolagem rápida --
+        // sem isso, rolar rápido pra baixo numa categoria grande recriava
+        // views demais de uma vez, causando umas travadinhas passageiras.
+        binding.rvChannels.setItemViewCacheSize(24)
+        binding.rvChannels.setHasFixedSize(true)
 
         binding.btnOpenFullPlayer.setOnClickListener {
             selectedChannel?.let { openFullPlayer(it) }

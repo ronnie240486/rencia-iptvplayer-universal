@@ -328,11 +328,14 @@ class XtreamRepository(context: Context? = null) {
         // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
         //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
         //    sempre também expõem o guia num endereço fixo (xmltv.php),
-        //    mesmo sem avisar isso na playlist -- tenta esse antes de
-        //    desistir de vez.
+        //    mesmo sem avisar isso na playlist. 3) Por último, tenta um
+        //    guia universal de canais brasileiros (iptv-epg.org) -- cobre
+        //    canais comuns quando nem a playlist nem o painel têm guia
+        //    próprio nenhum.
         val declaredUrl = epgUrlCache[playlistUrl]
         val fallbackUrl = "${normalizeBase(session.serverUrl)}/xmltv.php?username=${session.username}&password=${session.password}"
-        val candidates = listOfNotNull(declaredUrl, fallbackUrl).distinct()
+        val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
+        val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
         for (epgUrl in candidates) {
             xmlTvCache[epgUrl]?.let { if (it.isNotEmpty()) return it }

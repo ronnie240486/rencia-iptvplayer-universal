@@ -122,6 +122,20 @@ class LoginActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         pollingActive = true
+        // Se já tem sessão E lista salvas, entra DIRETO -- sem esperar a
+        // verificação do MAC no painel primeiro. Essa verificação é uma
+        // chamada de rede que, nesse painel, às vezes demora bastante --
+        // e era isso que fazia o app demorar TODA VEZ que abria, mesmo já
+        // tendo a lista toda salva (o cache da lista não adianta nada se
+        // o app fica esperando outra coisa lenta antes de nem checar ele).
+        // A verificação continua acontecendo, só que DEPOIS, já dentro do
+        // app, sem travar a entrada.
+        val session = SessionStore.getSavedSession(this)
+        if (session != null && !session.mac.isBlank() && xtreamRepository.hasCachedPlaylist(session)) {
+            startActivity(Intent(this, HomeActivity::class.java))
+            finish()
+            return
+        }
         activateDevice(silent = true)
     }
 

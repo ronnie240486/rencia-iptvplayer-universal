@@ -274,45 +274,66 @@ class ChannelListActivity : AppCompatActivity() {
      * verdade) usam o guia XMLTV referenciado na própria playlist. */
     private fun loadMiniGuide(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
+        // Cancela a busca ANTERIOR antes de começar uma nova -- se o
+        // usuário troca de canal rápido, a busca do canal anterior podia
+        // ficar "pendurada" competindo com a nova, e se ela fosse
+        // interrompida no meio (pela troca de tela, por exemplo) sem
+        // nunca terminar de verdade, a área de programação ficava em
+        // branco pra sempre (nem a faixa, nem o aviso apareciam).
+        miniGuideJob?.cancel()
         binding.rvMiniGuide.visibility = View.VISIBLE
         binding.tvMiniGuideEmpty.visibility = View.GONE
         binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
-        lifecycleScope.launch {
-            if (channel.directStreamUrl != null) {
-                // Limite de tempo pra essa busca nunca ficar "pendurada"
-                // sem mostrar nada (nem a faixa, nem o aviso) -- se
-                // demorar demais (rede lenta tentando as 3 fontes de
-                // guia), desiste e mostra o aviso genérico em vez de
-                // deixar a área de programação em branco pra sempre.
-                val result = kotlinx.coroutines.withTimeoutOrNull(15_000) {
-                    repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
-                }
-                if (result == null) {
-                    binding.tvMiniGuideEmpty.text = "Sem programação: a busca demorou demais e foi cancelada"
-                    showMiniGuideResult(emptyList())
+        miniGuideJob = lifecycleScope.launch {
+            var resolved = false
+            try {
+                if (channel.directStreamUrl != null) {
+                    // Limite de tempo pra essa busca nunca ficar "pendurada"
+                    // sem mostrar nada (nem a faixa, nem o aviso) -- se
+                    // demorar demais (rede lenta tentando as 3 fontes de
+                    // guia), desiste e mostra o aviso genérico em vez de
+                    // deixar a área de programação em branco pra sempre.
+                    val result = kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                        repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
+                    }
+                    if (result == null) {
+                        binding.tvMiniGuideEmpty.text = "Sem programação: a busca demorou demais e foi cancelada"
+                        showMiniGuideResult(emptyList())
+                        resolved = true
+                        return@launch
+                    }
+                    result
+                        .onSuccess { programmes ->
+                            val listings = programmes.map { p ->
+                                com.meuapp.iptvplayer.data.model.EpgListing(
+                                    id = "",
+                                    titleBase64 = p.title,
+                                    descriptionBase64 = null,
+                                    start = null,
+                                    end = null,
+                                    startTimestamp = p.startMillis / 1000,
+                                    stopTimestamp = p.stopMillis / 1000
+                                )
+                            }
+                            if (listings.isEmpty()) diagnoseEpgEmpty(session, channel) else showMiniGuideResult(listings)
+                        }
+                        .onFailure { diagnoseEpgEmpty(session, channel) }
+                    resolved = true
                     return@launch
                 }
-                result
-                    .onSuccess { programmes ->
-                        val listings = programmes.map { p ->
-                            com.meuapp.iptvplayer.data.model.EpgListing(
-                                id = "",
-                                titleBase64 = p.title,
-                                descriptionBase64 = null,
-                                start = null,
-                                end = null,
-                                startTimestamp = p.startMillis / 1000,
-                                stopTimestamp = p.stopMillis / 1000
-                            )
-                        }
-                        if (listings.isEmpty()) diagnoseEpgEmpty(session, channel) else showMiniGuideResult(listings)
-                    }
-                    .onFailure { diagnoseEpgEmpty(session, channel) }
-                return@launch
+                repository.getShortEpg(session, channel.streamId)
+                    .onSuccess { response -> showMiniGuideResult(response.listings.orEmpty()) }
+                    .onFailure { showMiniGuideResult(emptyList()) }
+                resolved = true
+            } finally {
+                // Garantia: se por qualquer motivo (cancelamento, erro
+                // inesperado) a busca não terminou de resolver nada, ainda
+                // assim mostra o aviso padrão em vez de deixar a área de
+                // programação em branco pra sempre.
+                if (!resolved) {
+                    showMiniGuideResult(emptyList())
+                }
             }
-            repository.getShortEpg(session, channel.streamId)
-                .onSuccess { response -> showMiniGuideResult(response.listings.orEmpty()) }
-                .onFailure { showMiniGuideResult(emptyList()) }
         }
     }
 

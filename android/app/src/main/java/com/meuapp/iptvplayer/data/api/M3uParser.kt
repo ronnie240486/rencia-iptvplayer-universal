@@ -90,9 +90,17 @@ object M3uParser {
         for (line in lines) {
             when {
                 line.startsWith("#EXTINF", ignoreCase = true) -> {
-                    pendingGroup = canonicalGroup(extractAttribute(line, "group-title") ?: "Geral")
-                    pendingLogo = extractAttribute(line, "tvg-logo")
-                    pendingTvgId = extractAttribute(line, "tvg-id") ?: extractAttribute(line, "tvg-name")
+                    // Lê TODOS os atributos da linha de uma vez só, numa
+                    // única passada (igual o app de referência faz) --
+                    // em vez de escanear a linha inteira de novo pra cada
+                    // atributo procurado (group-title, tvg-logo, tvg-id,
+                    // tvg-name = até 4 buscas repetidas na MESMA linha).
+                    // Multiplicado por milhares de canais, isso reduz
+                    // bastante o trabalho total de processar a lista.
+                    val attrs = parseAllAttributes(line)
+                    pendingGroup = canonicalGroup(attrs["group-title"] ?: "Geral")
+                    pendingLogo = attrs["tvg-logo"]
+                    pendingTvgId = attrs["tvg-id"] ?: attrs["tvg-name"]
                     // O nome do canal vem depois da última vírgula do #EXTINF.
                     pendingName = line.substringAfterLast(',').trim().ifBlank { null }
                 }
@@ -166,6 +174,20 @@ object M3uParser {
             Regex("$key=[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)
         }
         return regex.find(line)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    // Acha TODOS os pares atributo="valor" de uma linha numa única passada
+    // (uma expressão só, com findAll) -- bem mais rápido que uma busca
+    // separada pra cada atributo procurado, principalmente multiplicado
+    // por milhares de canais.
+    private val attributePairRegex = Regex("([a-zA-Z0-9_-]+)=[\"']([^\"']*)[\"']")
+
+    private fun parseAllAttributes(line: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        for (match in attributePairRegex.findAll(line)) {
+            result[match.groupValues[1].lowercase()] = match.groupValues[2].trim()
+        }
+        return result
     }
 
     // Compilada uma vez só POR CHAVE (group-title, tvg-id...), não a cada

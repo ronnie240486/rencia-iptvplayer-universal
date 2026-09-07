@@ -58,14 +58,6 @@ class XtreamRepository(context: Context? = null) {
         // sobrevive, some quando o processo do app é encerrado).
         private var appContext: Context? = null
         private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
-        // Nomes de canais da API Xtream (get_live_streams SEM filtro de
-        // categoria) -- usado como MAIS UMA fonte de EPG: alguns apps só
-        // conseguem mostrar programação porque usam a API Xtream de
-        // verdade (get_short_epg com o stream_id de verdade), nao XMLTV.
-        // Se essa lista veio de M3U (sem stream_id de verdade), tenta
-        // achar o canal equivalente na API por NOME pra pegar um
-        // stream_id de verdade e usar esse caminho tambem.
-        private val apiChannelsByNameCache = mutableMapOf<String, Map<String, Int>>() // cacheKey -> nome normalizado -> stream_id
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -92,19 +84,6 @@ class XtreamRepository(context: Context? = null) {
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.NONE
         })
-        .build()
-
-    // Cliente separado pras fontes de EPG externas (xmltv.php do painel,
-    // guia universal) -- ATENÇÃO: o guia universal sozinho tem uns 15MB,
-    // então precisa de um tempo de leitura generoso (uma conexão comum
-    // pode legitimamente levar mais de 8s pra baixar isso -- foi
-    // exatamente esse limite curto demais que quebrou o EPG que antes
-    // funcionava). Roda em paralelo com as outras fontes (não uma atrás
-    // da outra), então mesmo com timeout generoso, o tempo total continua
-    // sendo o da mais lenta, não a soma de todas.
-    private val epgClient = client.newBuilder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(40, TimeUnit.SECONDS)
         .build()
 
     // Esse player é "universal" (qualquer provedor Xtream Codes), mas cada
@@ -350,36 +329,22 @@ class XtreamRepository(context: Context? = null) {
      * mostra a programação real ("Jornal Nacional agora, novela depois")
      * mesmo em painéis sem API Xtream. Baixa e processa só uma vez por
      * sessão (fica em cache), e só guarda os canais que realmente existem
-     * na playlist, pra não gastar memória com um guia inteiro à toa. */
-    /** Busca um endereço de EPG usando o cliente de timeout curto -- só
-     * pra fontes externas de guia (que são "bônus", opcionais). */
-    private fun fetchEpgBodyFast(url: String): String? = runCatching {
-        val request = okhttp3.Request.Builder().url(url).build()
-        val response = epgClient.newCall(request).execute()
-        val body = if (response.isSuccessful) response.body?.string() else null
-        response.close()
-        body?.takeIf { it.isNotBlank() }
-    }.getOrNull()
-
-    private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@withContext emptyMap()
+     * na playlist, pra não gastar memória com um guia inteiro à toa.
+     *
+     * VOLTOU a ser esse jeito simples de propósito -- era assim que
+     * funcionava antes de eu ir empilhando "melhorias" (busca em
+     * paralelo, cliente com timeout curto, casamento por nome, quarta
+     * fonte pela API) que na prática QUEBRARAM o que já funcionava.
+     * Simples e comprovado > complexo e quebrado. */
+    private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> {
         val cacheKey = cacheKeyFor(session)
-        val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return@withContext emptyMap()
+        val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return emptyMap()
         // Compara tvg-id sem diferenciar maiúscula/minúscula -- é comum o
         // painel mandar "EPTV.Campinas" na playlist M3U e o guia XMLTV usar
         // "eptv.campinas" (ou vice-versa); sem isso, o casamento falhava
         // silenciosamente mesmo quando os dois IDs eram "o mesmo canal".
         val tvgIds = channels.mapNotNull { it.tvgId?.lowercase() }.toSet()
-        // Nomes normalizados dos canais da playlist -- usado como PLANO B
-        // quando o tvg-id não bate com nada no guia (muito comum com guias
-        // "universais" de terceiros, que usam seu próprio jeito de nomear
-        // os canais, diferente do tvg-id que o provedor do usuário usa).
-        val normalizedNames = channels.map { M3uParser.stripQualitySuffixPublic(it.name) }
-            .map { XmlTvParser.normalizeChannelName(it) }
-            .filter { it.isNotBlank() }
-            .toSet()
-        if (tvgIds.isEmpty() && normalizedNames.isEmpty()) return@withContext emptyMap()
+        if (tvgIds.isEmpty()) return emptyMap()
 
         // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
         //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
@@ -393,166 +358,38 @@ class XtreamRepository(context: Context? = null) {
         val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
         val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
-        // Se já sabe (por cache) que algum candidato tem dado de verdade,
-        // usa na hora sem baixar nada.
-        candidates.firstNotNullOfOrNull { url -> xmlTvCache[url]?.takeIf { it.isNotEmpty() } }
-            ?.let { return@withContext it }
-
-        // Testa as 3 fontes AO MESMO TEMPO (não uma depois da outra) --
-        // cada chamada de rede pode demorar até dezenas de segundos pra
-        // desistir sozinha; testando uma de cada vez, o tempo total podia
-        // passar de 1 minuto. Em paralelo, o tempo total é o da mais
-        // demorada, não a soma de todas.
-        val fetchJobs = candidates
-            .filter { xmlTvCache[it] == null } // pula quem já sabe que é vazio
-            .map { url ->
-                async { url to fetchEpgBodyFast(url) }
-            }
-        val fetched = fetchJobs.map { it.await() }
-
-        for ((epgUrl, xml) in fetched) {
-            if (xml == null) {
-                // Falha de rede de verdade (não "sem dados") -- não guarda
-                // em cache, vale tentar de novo na próxima vez.
-                continue
-            }
-
-            // Primeiro descobre que IDs o guia usa pra cada canal (lendo só
-            // os nomes, rápido) -- resolve pelo tvg-id direto OU pelo nome
-            // do canal batendo (normalizado), o que der certo primeiro.
-            // Guarda um mapa de volta (id do guia -> nossa chave de busca)
-            // pra depois conseguir procurar usando o mesmo tvg-id/nome que
-            // o resto do app já usa.
-            val guideNameToId = runCatching { XmlTvParser.parseChannelNames(xml) }.getOrDefault(emptyMap())
-            val relevantGuideIds = mutableSetOf<String>()
-            val guideIdToOurKey = mutableMapOf<String, String>()
-            tvgIds.forEach { id ->
-                relevantGuideIds.add(id)
-                guideIdToOurKey[id] = id
-            }
-            normalizedNames.forEach { normName ->
-                guideNameToId[normName]?.let { guideId ->
-                    val guideIdLower = guideId.lowercase()
-                    relevantGuideIds.add(guideIdLower)
-                    guideIdToOurKey[guideIdLower] = normName
-                }
-            }
-
-            val parsedByGuideId = runCatching { XmlTvParser.parse(xml, relevantGuideIds) }.getOrDefault(emptyMap())
-            val remapped = mutableMapOf<String, List<XmlTvProgramme>>()
-            parsedByGuideId.forEach { (guideId, programmes) ->
-                remapped[guideIdToOurKey[guideId] ?: guideId] = programmes
-            }
-
-            xmlTvCache[epgUrl] = remapped
-            if (remapped.isNotEmpty()) {
+        for (epgUrl in candidates) {
+            xmlTvCache[epgUrl]?.let { if (it.isNotEmpty()) return it }
+            val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
+            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: continue
+            if (parsed.isNotEmpty()) {
+                xmlTvCache[epgUrl] = parsed
                 epgUrlCache[cacheKey] = epgUrl
-                return@withContext remapped
+                return parsed
             }
         }
-        return@withContext emptyMap()
+        return emptyMap()
     }
 
-
-    /** Busca (uma vez só, fica em cache) a lista de canais direto da API
-     * Xtream de verdade (get_live_streams, sem filtro de categoria) --
-     * mesmo quando a lista principal do app vem de M3U, o painel pode
-     * também ter uma API funcionando com stream_id de verdade pra cada
-     * canal, que é o que muitos outros apps usam pra mostrar programação
-     * (get_short_epg precisa de um stream_id de verdade, não funciona
-     * com canais vindos só de M3U). */
-    private suspend fun apiChannelIdsByName(session: Session): Map<String, Int> {
-        val cacheKey = cacheKeyFor(session)
-        apiChannelsByNameCache[cacheKey]?.let { return it }
-        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                        "?username=${session.username}&password=${session.password}" +
-                        "&action=get_live_streams"
-                // Cliente RÁPIDO aqui (mesmo timeout curto usado pras
-                // fontes de EPG) -- essa é uma tentativa "bônus", não vale
-                // a pena esperar até 35s (do cliente principal) só pra
-                // descobrir se esse caminho funciona ou não.
-                val body = fetchEpgBodyFast(url) ?: error("sem resposta")
-                val type = object : TypeToken<List<LiveStream>>() {}.type
-                val streams = parseJsonList<List<LiveStream>>(body, type)
-                val map = mutableMapOf<String, Int>()
-                streams.forEach { stream ->
-                    val normalized = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(stream.name))
-                    if (normalized.isNotBlank() && stream.streamId != 0) {
-                        map.putIfAbsent(normalized, stream.streamId)
-                    }
-                }
-                map
-            }.getOrDefault(emptyMap())
-        }
-        apiChannelsByNameCache[cacheKey] = result
-        return result
+    /** Busca o guia de programação em segundo plano, bem cedo (chamado
+     * ainda na tela Home) -- assim, quando o usuário abrir Live TV, o
+     * guia já está pronto na memória, sem precisar esperar nada na hora
+     * de trocar de canal. */
+    suspend fun prefetchEpgGuide(session: Session) {
+        runCatching { fetchXmlTvGuide(session) }
     }
 
     /** Programação (agora + próximos) de UM canal específico, lida do guia
      * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id
-     * de verdade pra usar o get_short_epg da API Xtream). Tenta primeiro
-     * pelo tvg-id (mais preciso); se não achar nada, tenta pelo NOME do
-     * canal (mais tolerante a guias de terceiros que nomeiam diferente). */
-    /** Busca e guarda em cache TODAS as fontes de programação de uma vez
-     * só, ANTES do usuário escolher qualquer canal -- assim, quando ele
-     * troca de canal, olhar a programação dele é só uma consulta em
-     * memória (instantânea, sem chamada de rede nenhuma na hora). É assim
-     * que outros apps conseguem mostrar programação na hora, sem "ficar
-     * buscando" a cada troca de canal. */
-    suspend fun prefetchEpgGuide(session: Session) {
-        kotlinx.coroutines.coroutineScope {
-            launch { runCatching { fetchXmlTvGuide(session) } }
-            launch { runCatching { apiChannelIdsByName(session) } }
-        }
-    }
-
+     * de verdade pra usar o get_short_epg da API Xtream). */
     suspend fun getEpgFromPlaylist(session: Session, tvgId: String?, channelName: String? = null): Result<List<XmlTvProgramme>> = runCatching {
-        if (tvgId.isNullOrBlank() && channelName.isNullOrBlank()) return@runCatching emptyList()
+        if (tvgId.isNullOrBlank()) return@runCatching emptyList()
         val guide = fetchXmlTvGuide(session)
         val now = System.currentTimeMillis()
-        val byId = tvgId?.lowercase()?.let { guide[it] }
-        val byName = if (byId.isNullOrEmpty() && !channelName.isNullOrBlank()) {
-            guide[XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName))]
-        } else null
-        val fromXmlTv = (byId ?: byName).orEmpty()
-        if (fromXmlTv.isNotEmpty()) {
-            return@runCatching fromXmlTv
-                .filter { it.stopMillis >= now }
-                .sortedBy { it.startMillis }
-                .take(6)
-        }
-
-        // Nenhuma fonte XMLTV teve dado -- tenta achar esse canal na API
-        // Xtream de verdade (por nome) e usar get_short_epg com o
-        // stream_id de verdade. É provavelmente isso que outros apps
-        // fazem quando conseguem mostrar programação pra essa mesma
-        // lista.
-        if (!channelName.isNullOrBlank()) {
-            val normalizedName = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName))
-            val apiStreamId = apiChannelIdsByName(session)[normalizedName]
-            if (apiStreamId != null) {
-                val shortEpg = getShortEpg(session, apiStreamId).getOrNull()
-                val listings = shortEpg?.listings.orEmpty()
-                if (listings.isNotEmpty()) {
-                    return@runCatching listings.mapNotNull { listing ->
-                        val start = listing.startTimestamp?.times(1000) ?: return@mapNotNull null
-                        val stop = listing.stopTimestamp?.times(1000) ?: return@mapNotNull null
-                        if (stop < now) return@mapNotNull null
-                        XmlTvProgramme(
-                            channelId = normalizedName,
-                            startMillis = start,
-                            stopMillis = stop,
-                            title = runCatching {
-                                String(android.util.Base64.decode(listing.titleBase64.orEmpty(), android.util.Base64.DEFAULT), Charsets.UTF_8).trim()
-                            }.getOrDefault(listing.titleBase64.orEmpty()).ifBlank { "Sem título" }
-                        )
-                    }.sortedBy { it.startMillis }.take(6)
-                }
-            }
-        }
-        emptyList()
+        guide[tvgId.lowercase()].orEmpty()
+            .filter { it.stopMillis >= now }
+            .sortedBy { it.startMillis }
+            .take(6)
     }
 
     data class EpgDiagnostic(

@@ -174,6 +174,14 @@ class LoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             renciaRepository.authenticateByMac(mac)
                 .onSuccess { session ->
+                    // BUG CRITICO corrigido: essa variavel nunca era
+                    // resetada aqui (so no caminho de falha) -- se essa
+                    // mesma tela fosse reaproveitada de algum jeito (sem
+                    // passar por onCreate de novo), a proxima tentativa de
+                    // ativar ficava travada pra sempre nessa checagem,
+                    // sem fazer absolutamente nada (nem erro, nem
+                    // continuar -- só parada).
+                    activationInProgress = false
                     pollingActive = false
                     retryHandler.removeCallbacks(retryRunnable)
                     SessionStore.saveSession(this@LoginActivity, session)

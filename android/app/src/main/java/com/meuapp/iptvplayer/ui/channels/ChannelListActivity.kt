@@ -306,15 +306,18 @@ class ChannelListActivity : AppCompatActivity() {
         // chamada de rede travar de um jeito que nem o timeout do
         // coroutine consegue interromper (acontece com chamadas
         // bloqueantes de verdade), isso aqui ainda dispara e força uma
-        // resposta, garantido.
+        // resposta, garantido. SEM PRESSA: como a busca do guia inteiro já
+        // acontece bem mais cedo (na Home, antes até de abrir essa tela),
+        // esse limite aqui é só uma rede de segurança de última instância
+        // -- não interrompe nada no uso normal.
         val watchdog = Runnable {
             if (binding.tvMiniGuideEmpty.text == "Buscando programação…") {
-                binding.tvMiniGuideEmpty.text = "Sem programação: a busca travou e foi interrompida à força"
+                binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
                 showMiniGuideResult(emptyList())
             }
         }
         miniGuideWatchdog = watchdog
-        binding.root.postDelayed(watchdog, 12_000)
+        binding.root.postDelayed(watchdog, 50_000)
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {
@@ -324,11 +327,11 @@ class ChannelListActivity : AppCompatActivity() {
                     // demorar demais (rede lenta tentando as 3 fontes de
                     // guia), desiste e mostra o aviso genérico em vez de
                     // deixar a área de programação em branco pra sempre.
-                    val result = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+                    val result = kotlinx.coroutines.withTimeoutOrNull(45_000) {
                         repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
                     }
                     if (result == null) {
-                        binding.tvMiniGuideEmpty.text = "Sem programação: a busca demorou demais e foi cancelada"
+                        binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
                         showMiniGuideResult(emptyList())
                         resolved = true
                         return@launch

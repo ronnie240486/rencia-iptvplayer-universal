@@ -67,6 +67,17 @@ class HomeActivity : AppCompatActivity() {
 
         bindHomeActions()
         setupContinueWatching()
+        // Começa a buscar a programação (EPG) AQUI, bem cedo, ainda na
+        // Home -- sem pressa nenhuma, sem limite de tempo, rodando
+        // quietinho no fundo. Assim, quando o usuário abrir Live TV daqui
+        // a alguns segundos, a programação já está pronta na memória,
+        // sem ele nunca perceber nenhuma espera -- é assim que outros
+        // apps conseguem parecer instantâneos.
+        lifecycleScope.launch {
+            runCatching {
+                com.meuapp.iptvplayer.data.api.XtreamRepository(this@HomeActivity).prefetchEpgGuide(session)
+            }
+        }
         binding.dashboardOverlay.post {
             sizeDashboardToScreen()
             // Espera mais um ciclo de layout depois de mudar a altura --

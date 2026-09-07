@@ -359,11 +359,20 @@ class XtreamRepository(context: Context? = null) {
         val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
         for (epgUrl in candidates) {
-            xmlTvCache[epgUrl]?.let { if (it.isNotEmpty()) return it }
+            // Guarda em cache mesmo quando o resultado vem vazio (sem
+            // canal nenhum batendo) -- sem isso, cada troca de canal
+            // tentava baixar as 3 fontes de novo do ZERO, mesmo já
+            // sabendo que nenhuma tinha dado certo antes. Só volta a
+            // tentar quando é falha de REDE de verdade (não "sem dados").
+            val alreadyChecked = xmlTvCache[epgUrl]
+            if (alreadyChecked != null) {
+                if (alreadyChecked.isNotEmpty()) return alreadyChecked
+                continue
+            }
             val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
-            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrNull() ?: continue
+            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
+            xmlTvCache[epgUrl] = parsed
             if (parsed.isNotEmpty()) {
-                xmlTvCache[epgUrl] = parsed
                 epgUrlCache[cacheKey] = epgUrl
                 return parsed
             }

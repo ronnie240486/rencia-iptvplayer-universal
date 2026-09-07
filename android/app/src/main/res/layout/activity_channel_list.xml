@@ -61,18 +61,28 @@
                     android:paddingBottom="8dp" />
             </LinearLayout>
 
-            <LinearLayout
+            <androidx.core.widget.NestedScrollView
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
+                android:fillViewport="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:paddingHorizontal="8dp">
 
+                <!-- Altura FIXA pro vídeo (não mais "flexível sem
+                limite"): assim a área de programação logo abaixo
+                SEMPRE tem o espaço dela garantido, e essa coluna toda
+                agora rola se precisar, em vez de simplesmente cortar o
+                que não coube na tela (que era o motivo real de a área de
+                programação nunca aparecer em telas mais baixas). -->
                 <FrameLayout
                     android:id="@+id/miniPlayerPanel"
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="200dp"
                     android:layout_marginTop="8dp"
                     android:background="@drawable/bg_tile"
                     android:clipToPadding="false">
@@ -150,18 +160,15 @@
                         android:textAllCaps="false" />
                 </FrameLayout>
 
-                <!-- Área de programação com espaço GARANTIDO (peso
-                próprio, não fixo): antes, o painel de vídeo acima
-                (peso 1, sem limite) podia sobrar pouco ou nenhum espaço
-                pra essa área em telas mais baixas (celular na horizontal),
-                fazendo a mensagem/faixa de programação nunca aparecer de
-                verdade (mesmo com o código funcionando certinho, não
-                tinha onde desenhar). -->
+                <!-- Área de programação com tamanho PRÓPRIO (não mais
+                dividindo espaço com o vídeo): agora que essa coluna
+                inteira rola, essa área sempre tem lugar pra desenhar,
+                mesmo que precise rolar um pouquinho pra ver. -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="0.55"
+                    android:layout_height="wrap_content"
                     android:orientation="vertical"
+                    android:paddingBottom="12dp"
                     android:clipChildren="false">
 
                     <TextView
@@ -177,8 +184,7 @@
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/rvMiniGuide"
                         android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
+                        android:layout_height="80dp"
                         android:layout_marginTop="4dp"
                         android:clipToPadding="false"
                         android:orientation="horizontal"
@@ -187,19 +193,19 @@
                     <TextView
                         android:id="@+id/tvMiniGuideEmpty"
                         android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:layout_marginBottom="4dp"
                         android:background="@drawable/bg_tile"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="12dp"
                         android:text="Esta lista não fornece programação (EPG) para este canal"
                         android:textColor="@color/text_secondary"
                         android:textSize="11sp"
                         android:visibility="gone" />
                 </LinearLayout>
             </LinearLayout>
+            </androidx.core.widget.NestedScrollView>
         </LinearLayout>
     </LinearLayout>
 

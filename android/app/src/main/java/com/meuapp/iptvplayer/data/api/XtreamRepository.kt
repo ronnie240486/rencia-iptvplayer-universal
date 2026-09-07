@@ -57,6 +57,14 @@ class XtreamRepository(context: Context? = null) {
         // sobrevive, some quando o processo do app é encerrado).
         private var appContext: Context? = null
         private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
+        // Nomes de canais da API Xtream (get_live_streams SEM filtro de
+        // categoria) -- usado como MAIS UMA fonte de EPG: alguns apps só
+        // conseguem mostrar programação porque usam a API Xtream de
+        // verdade (get_short_epg com o stream_id de verdade), nao XMLTV.
+        // Se essa lista veio de M3U (sem stream_id de verdade), tenta
+        // achar o canal equivalente na API por NOME pra pegar um
+        // stream_id de verdade e usar esse caminho tambem.
+        private val apiChannelsByNameCache = mutableMapOf<String, Map<String, Int>>() // cacheKey -> nome normalizado -> stream_id
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -442,6 +450,35 @@ class XtreamRepository(context: Context? = null) {
     }
 
 
+    /** Busca (uma vez só, fica em cache) a lista de canais direto da API
+     * Xtream de verdade (get_live_streams, sem filtro de categoria) --
+     * mesmo quando a lista principal do app vem de M3U, o painel pode
+     * também ter uma API funcionando com stream_id de verdade pra cada
+     * canal, que é o que muitos outros apps usam pra mostrar programação
+     * (get_short_epg precisa de um stream_id de verdade, não funciona
+     * com canais vindos só de M3U). */
+    private suspend fun apiChannelIdsByName(session: Session): Map<String, Int> {
+        val cacheKey = cacheKeyFor(session)
+        apiChannelsByNameCache[cacheKey]?.let { return it }
+        val result = runCatching {
+            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                    "?username=${session.username}&password=${session.password}" +
+                    "&action=get_live_streams"
+            val type = object : TypeToken<List<LiveStream>>() {}.type
+            val streams = parseJsonList<List<LiveStream>>(fetchBody(url), type)
+            val map = mutableMapOf<String, Int>()
+            streams.forEach { stream ->
+                val normalized = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(stream.name))
+                if (normalized.isNotBlank() && stream.streamId != 0) {
+                    map.putIfAbsent(normalized, stream.streamId)
+                }
+            }
+            map
+        }.getOrDefault(emptyMap())
+        apiChannelsByNameCache[cacheKey] = result
+        return result
+    }
+
     /** Programação (agora + próximos) de UM canal específico, lida do guia
      * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id
      * de verdade pra usar o get_short_epg da API Xtream). Tenta primeiro
@@ -455,10 +492,43 @@ class XtreamRepository(context: Context? = null) {
         val byName = if (byId.isNullOrEmpty() && !channelName.isNullOrBlank()) {
             guide[XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName))]
         } else null
-        (byId ?: byName).orEmpty()
-            .filter { it.stopMillis >= now }
-            .sortedBy { it.startMillis }
-            .take(6)
+        val fromXmlTv = (byId ?: byName).orEmpty()
+        if (fromXmlTv.isNotEmpty()) {
+            return@runCatching fromXmlTv
+                .filter { it.stopMillis >= now }
+                .sortedBy { it.startMillis }
+                .take(6)
+        }
+
+        // Nenhuma fonte XMLTV teve dado -- tenta achar esse canal na API
+        // Xtream de verdade (por nome) e usar get_short_epg com o
+        // stream_id de verdade. É provavelmente isso que outros apps
+        // fazem quando conseguem mostrar programação pra essa mesma
+        // lista.
+        if (!channelName.isNullOrBlank()) {
+            val normalizedName = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(channelName))
+            val apiStreamId = apiChannelIdsByName(session)[normalizedName]
+            if (apiStreamId != null) {
+                val shortEpg = getShortEpg(session, apiStreamId).getOrNull()
+                val listings = shortEpg?.listings.orEmpty()
+                if (listings.isNotEmpty()) {
+                    return@runCatching listings.mapNotNull { listing ->
+                        val start = listing.startTimestamp?.times(1000) ?: return@mapNotNull null
+                        val stop = listing.stopTimestamp?.times(1000) ?: return@mapNotNull null
+                        if (stop < now) return@mapNotNull null
+                        XmlTvProgramme(
+                            channelId = normalizedName,
+                            startMillis = start,
+                            stopMillis = stop,
+                            title = runCatching {
+                                String(android.util.Base64.decode(listing.titleBase64.orEmpty(), android.util.Base64.DEFAULT), Charsets.UTF_8).trim()
+                            }.getOrDefault(listing.titleBase64.orEmpty()).ifBlank { "Sem título" }
+                        )
+                    }.sortedBy { it.startMillis }.take(6)
+                }
+            }
+        }
+        emptyList()
     }
 
     data class EpgDiagnostic(

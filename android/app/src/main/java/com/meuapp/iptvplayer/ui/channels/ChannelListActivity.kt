@@ -281,9 +281,14 @@ class ChannelListActivity : AppCompatActivity() {
         // nunca terminar de verdade, a área de programação ficava em
         // branco pra sempre (nem a faixa, nem o aviso apareciam).
         miniGuideJob?.cancel()
-        binding.rvMiniGuide.visibility = View.VISIBLE
-        binding.tvMiniGuideEmpty.visibility = View.GONE
-        binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
+        // Mostra o aviso padrão IMEDIATAMENTE, de cara -- não some com ele
+        // primeiro só pra (talvez) trazer de volta depois. Assim, mesmo
+        // que a busca demore ou falhe de um jeito totalmente inesperado,
+        // o usuário já vê alguma coisa na hora, não uma área vazia
+        // esperando o código "decidir" o que mostrar.
+        binding.rvMiniGuide.visibility = View.GONE
+        binding.tvMiniGuideEmpty.visibility = View.VISIBLE
+        binding.tvMiniGuideEmpty.text = "Buscando programação…"
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {

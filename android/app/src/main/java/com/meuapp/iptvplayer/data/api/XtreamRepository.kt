@@ -460,21 +460,28 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun apiChannelIdsByName(session: Session): Map<String, Int> {
         val cacheKey = cacheKeyFor(session)
         apiChannelsByNameCache[cacheKey]?.let { return it }
-        val result = runCatching {
-            val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
-                    "?username=${session.username}&password=${session.password}" +
-                    "&action=get_live_streams"
-            val type = object : TypeToken<List<LiveStream>>() {}.type
-            val streams = parseJsonList<List<LiveStream>>(fetchBody(url), type)
-            val map = mutableMapOf<String, Int>()
-            streams.forEach { stream ->
-                val normalized = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(stream.name))
-                if (normalized.isNotBlank() && stream.streamId != 0) {
-                    map.putIfAbsent(normalized, stream.streamId)
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
+                        "?username=${session.username}&password=${session.password}" +
+                        "&action=get_live_streams"
+                // Cliente RÁPIDO aqui (mesmo timeout curto usado pras
+                // fontes de EPG) -- essa é uma tentativa "bônus", não vale
+                // a pena esperar até 35s (do cliente principal) só pra
+                // descobrir se esse caminho funciona ou não.
+                val body = fetchEpgBodyFast(url) ?: error("sem resposta")
+                val type = object : TypeToken<List<LiveStream>>() {}.type
+                val streams = parseJsonList<List<LiveStream>>(body, type)
+                val map = mutableMapOf<String, Int>()
+                streams.forEach { stream ->
+                    val normalized = XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(stream.name))
+                    if (normalized.isNotBlank() && stream.streamId != 0) {
+                        map.putIfAbsent(normalized, stream.streamId)
+                    }
                 }
-            }
-            map
-        }.getOrDefault(emptyMap())
+                map
+            }.getOrDefault(emptyMap())
+        }
         apiChannelsByNameCache[cacheKey] = result
         return result
     }

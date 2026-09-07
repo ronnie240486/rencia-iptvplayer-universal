@@ -272,6 +272,8 @@ class ChannelListActivity : AppCompatActivity() {
      * clicar em EPG nem em nada. Canais vindos da API Xtream usam
      * get_short_epg; canais vindos de uma playlist M3U (sem stream_id de
      * verdade) usam o guia XMLTV referenciado na própria playlist. */
+    private var miniGuideWatchdog: Runnable? = null
+
     private fun loadMiniGuide(channel: LiveStream) {
         val session = SessionStore.getSavedSession(this) ?: return
         // Cancela a busca ANTERIOR antes de começar uma nova -- se o
@@ -281,6 +283,7 @@ class ChannelListActivity : AppCompatActivity() {
         // nunca terminar de verdade, a área de programação ficava em
         // branco pra sempre (nem a faixa, nem o aviso apareciam).
         miniGuideJob?.cancel()
+        miniGuideWatchdog?.let { binding.root.removeCallbacks(it) }
         // Mostra o aviso padrão IMEDIATAMENTE, de cara -- não some com ele
         // primeiro só pra (talvez) trazer de volta depois. Assim, mesmo
         // que a busca demore ou falhe de um jeito totalmente inesperado,
@@ -289,6 +292,20 @@ class ChannelListActivity : AppCompatActivity() {
         binding.rvMiniGuide.visibility = View.GONE
         binding.tvMiniGuideEmpty.visibility = View.VISIBLE
         binding.tvMiniGuideEmpty.text = "Buscando programação…"
+        // "Cão de guarda" TOTALMENTE independente de corrotina/coroutine
+        // -- roda puro no Handler da própria View, então mesmo se alguma
+        // chamada de rede travar de um jeito que nem o timeout do
+        // coroutine consegue interromper (acontece com chamadas
+        // bloqueantes de verdade), isso aqui ainda dispara e força uma
+        // resposta, garantido.
+        val watchdog = Runnable {
+            if (binding.tvMiniGuideEmpty.text == "Buscando programação…") {
+                binding.tvMiniGuideEmpty.text = "Sem programação: a busca travou e foi interrompida à força"
+                showMiniGuideResult(emptyList())
+            }
+        }
+        miniGuideWatchdog = watchdog
+        binding.root.postDelayed(watchdog, 20_000)
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {
@@ -331,6 +348,9 @@ class ChannelListActivity : AppCompatActivity() {
                     .onFailure { showMiniGuideResult(emptyList()) }
                 resolved = true
             } finally {
+                // Cancela o cão de guarda -- a busca terminou de um jeito
+                // ou de outro (não precisa mais forçar nada à força).
+                binding.root.removeCallbacks(watchdog)
                 // Garantia: se por qualquer motivo (cancelamento, erro
                 // inesperado) a busca não terminou de resolver nada, ainda
                 // assim mostra o aviso padrão em vez de deixar a área de

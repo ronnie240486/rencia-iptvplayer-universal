@@ -51,6 +51,17 @@ class EpgGuideActivity : AppCompatActivity() {
     private fun loadGuide() {
         val session = SessionStore.getSavedSession(this) ?: return
         binding.progressBar.visibility = View.VISIBLE
+        // "Cão de guarda" independente de corrotina -- se uma chamada de
+        // rede travar de um jeito bloqueante de verdade (que nem o
+        // timeout do coroutine consegue interromper de dentro), isso aqui
+        // ainda garante que essa tela não fica travada pra sempre.
+        val watchdog = Runnable {
+            if (binding.progressBar.visibility == View.VISIBLE) {
+                binding.progressBar.visibility = View.GONE
+                Toast.makeText(this, "A busca travou e foi interrompida à força -- tente de novo", Toast.LENGTH_LONG).show()
+            }
+        }
+        binding.root.postDelayed(watchdog, 45_000)
         lifecycleScope.launch {
             // Limite de segurança pra essa tela nunca ficar travada de
             // vez -- mesmo com a busca de EPG mais rápida agora, testar
@@ -95,6 +106,7 @@ class EpgGuideActivity : AppCompatActivity() {
             if (completed == null) {
                 Toast.makeText(this@EpgGuideActivity, "Demorou demais pra carregar o guia -- tente de novo", Toast.LENGTH_LONG).show()
             }
+            binding.root.removeCallbacks(watchdog)
             binding.progressBar.visibility = View.GONE
         }
     }

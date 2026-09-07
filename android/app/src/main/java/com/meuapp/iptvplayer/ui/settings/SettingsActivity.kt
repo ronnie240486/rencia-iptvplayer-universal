@@ -145,7 +145,7 @@ class SettingsActivity : AppCompatActivity() {
             // reativando o MAC, o app continuava usando a lista antiga
             // guardada (a playlist geralmente é a mesma URL, então o cache
             // "batia" de novo e nada mudava de verdade).
-            SessionStore.getSavedSession(this@SettingsActivity)?.playlistUrl?.let {
+            SessionStore.getSavedSession(this@SettingsActivity)?.let {
                 com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity).clearM3uCache(it)
             }
             renciaRepository.authenticateByMac(mac)

@@ -30,9 +30,17 @@ object M3uParser {
      * (url-tvg="..." ou x-tvg-url="...") -- é assim que a maioria dos apps
      * de IPTV mostra "o que está passando agora" mesmo sem a API Xtream. */
     fun extractEpgUrl(content: String): String? {
-        val firstLine = content.removePrefix("\uFEFF").lineSequence().firstOrNull { it.isNotBlank() } ?: return null
-        if (!firstLine.startsWith("#EXTM3U", ignoreCase = true)) return null
-        return extractAttribute(firstLine, "url-tvg") ?: extractAttribute(firstLine, "x-tvg-url")
+        // Mais tolerante: olha as primeiras linhas do arquivo (não só a
+        // primeira, e não exige que seja bem na linha #EXTM3U) -- alguns
+        // painéis colocam essa informação numa linha separada, e assim
+        // como outros apps de IPTV já conseguem achar isso na mesma
+        // playlist, o nosso também deveria.
+        val firstLines = content.removePrefix("\uFEFF").lineSequence().take(10)
+        for (line in firstLines) {
+            val found = extractAttribute(line, "url-tvg") ?: extractAttribute(line, "x-tvg-url")
+            if (found != null) return found
+        }
+        return null
     }
 
     fun parse(content: String): List<ParsedChannel> {

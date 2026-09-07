@@ -130,14 +130,24 @@ class XtreamRepository(context: Context? = null) {
         }
     }
 
-    /** Apaga o cache (memória e disco) de uma playlist específica -- usado
-     * pelo botão "Atualizar conteúdo" em Ajustes, pra forçar buscar tudo
-     * de novo em vez de continuar usando a lista antiga guardada. */
-    fun clearM3uCache(playlistUrl: String?) {
-        if (playlistUrl.isNullOrBlank()) return
-        m3uCache.remove(playlistUrl)
-        epgUrlCache.remove(playlistUrl)
-        runCatching { m3uCacheFile(playlistUrl)?.delete() }
+    /** Chave de cache ESTÁVEL pra cada conta -- usa o MAC (que não muda
+     * nunca pro mesmo aparelho/conta) em vez do endereço da playlist em
+     * si. Alguns painéis devolvem uma URL de playlist levemente diferente
+     * a cada verificação (ex: com um token de sessão embutido) -- usando
+     * a URL como chave, isso fazia o cache "não bater" e forçar
+     * baixar/processar tudo de novo mesmo sem nada ter mudado de
+     * verdade, mesmo fechando e abrindo o MESMO app sem reinstalar nada. */
+    private fun cacheKeyFor(session: Session): String =
+        session.mac.trim().ifBlank { session.playlistUrl.orEmpty() }
+
+    /** Apaga o cache (memória e disco) de uma sessão -- usado pelo botão
+     * "Atualizar conteúdo" em Ajustes, pra forçar buscar tudo de novo em
+     * vez de continuar usando a lista antiga guardada. */
+    fun clearM3uCache(session: Session) {
+        val key = cacheKeyFor(session).ifBlank { return }
+        m3uCache.remove(key)
+        epgUrlCache.remove(key)
+        runCatching { m3uCacheFile(key)?.delete() }
     }
 
     private data class CachedPlaylistData(
@@ -151,20 +161,20 @@ class XtreamRepository(context: Context? = null) {
      * VEZ que abria o app, mesmo já tendo processado tudo antes. Agora só
      * processa (parse) uma vez: no primeiro download. Depois disso, só
      * lê o resultado já pronto. */
-    private fun readParsedCache(playlistUrl: String): CachedPlaylistData? {
-        val file = m3uCacheFile(playlistUrl)?.takeIf { it.exists() } ?: return null
+    private fun readParsedCache(cacheKey: String): CachedPlaylistData? {
+        val file = m3uCacheFile(cacheKey)?.takeIf { it.exists() } ?: return null
         val json = runCatching { file.readText() }.getOrNull() ?: return null
         return runCatching { gson.fromJson(json, CachedPlaylistData::class.java) }.getOrNull()
     }
 
-    private fun writeParsedCache(playlistUrl: String, data: CachedPlaylistData) {
-        val file = m3uCacheFile(playlistUrl) ?: return
+    private fun writeParsedCache(cacheKey: String, data: CachedPlaylistData) {
+        val file = m3uCacheFile(cacheKey) ?: return
         runCatching { writeCacheFileSafely(file, gson.toJson(data)) }
     }
 
-    private fun m3uCacheFile(playlistUrl: String): File? {
+    private fun m3uCacheFile(cacheKey: String): File? {
         val dir = appContext?.cacheDir ?: return null
-        return File(dir, "m3u_cache_${kotlin.math.abs(playlistUrl.hashCode())}.m3u")
+        return File(dir, "m3u_cache_${kotlin.math.abs(cacheKey.hashCode())}.m3u")
     }
 
     /** Grava em disco de um jeito seguro contra o app ser morto no meio da
@@ -185,9 +195,10 @@ class XtreamRepository(context: Context? = null) {
      * entra direto, sem mostrar barra de progresso nenhuma, quando já tem
      * a lista guardada de uma sessão anterior. */
     fun hasCachedPlaylist(session: Session): Boolean {
-        val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return false
-        if (m3uCache.containsKey(playlistUrl)) return true
-        return m3uCacheFile(playlistUrl)?.exists() == true
+        if (session.playlistUrl.isNullOrBlank()) return false
+        val key = cacheKeyFor(session).ifBlank { return false }
+        if (m3uCache.containsKey(key)) return true
+        return m3uCacheFile(key)?.exists() == true
     }
 
     private fun normalizeBase(serverUrl: String): String =
@@ -238,18 +249,19 @@ class XtreamRepository(context: Context? = null) {
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
     ): Result<Unit> = kotlin.runCatching {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@runCatching
-        m3uCache[playlistUrl]?.let { return@runCatching }
+        val cacheKey = cacheKeyFor(session)
+        m3uCache[cacheKey]?.let { return@runCatching }
 
         // Cache já PROCESSADO (não o texto bruto) -- ler e desserializar é
         // rápido, bem diferente de reprocessar o texto inteiro com regex
         // de novo (que chegava a levar dezenas de segundos numa lista
         // grande, mesmo já tendo sido processada antes).
         val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            readParsedCache(playlistUrl)
+            readParsedCache(cacheKey)
         }
         if (cached != null && cached.channels.isNotEmpty()) {
-            m3uCache[playlistUrl] = cached.channels
-            epgUrlCache[playlistUrl] = cached.epgUrl
+            m3uCache[cacheKey] = cached.channels
+            epgUrlCache[cacheKey] = cached.epgUrl
             onProgress(1, 1)
             return@runCatching
         }
@@ -279,11 +291,11 @@ class XtreamRepository(context: Context? = null) {
             val text = buffer.readString(Charsets.UTF_8)
             response.close()
 
-            epgUrlCache[playlistUrl] = M3uParser.extractEpgUrl(text)
+            epgUrlCache[cacheKey] = M3uParser.extractEpgUrl(text)
             val parsed = M3uParser.parse(text)
             if (parsed.isNotEmpty()) {
-                m3uCache[playlistUrl] = parsed
-                writeParsedCache(playlistUrl, CachedPlaylistData(parsed, epgUrlCache[playlistUrl]))
+                m3uCache[cacheKey] = parsed
+                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrlCache[cacheKey]))
             }
         }
     }
@@ -291,31 +303,32 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun fetchM3uChannels(session: Session): List<M3uParser.ParsedChannel> {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() }
             ?: error("Esta sessão não tem uma playlist M3U para usar.")
-        m3uCache[playlistUrl]?.let { return it }
+        val cacheKey = cacheKeyFor(session)
+        m3uCache[cacheKey]?.let { return it }
 
         // Cache já PROCESSADO (não o texto bruto) -- ler e desserializar é
         // rápido; reprocessar o texto inteiro de novo (regex em milhares
         // de linhas) é que demorava até 40s numa lista grande, mesmo já
         // tendo sido processado antes.
         val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            readParsedCache(playlistUrl)
+            readParsedCache(cacheKey)
         }
         if (cached != null && cached.channels.isNotEmpty()) {
-            m3uCache[playlistUrl] = cached.channels
-            epgUrlCache[playlistUrl] = cached.epgUrl
+            m3uCache[cacheKey] = cached.channels
+            epgUrlCache[cacheKey] = cached.epgUrl
             return cached.channels
         }
 
         val body = fetchBody(playlistUrl)
         val epgUrl = M3uParser.extractEpgUrl(body)
-        epgUrlCache[playlistUrl] = epgUrl
+        epgUrlCache[cacheKey] = epgUrl
         val parsed = M3uParser.parse(body)
         if (parsed.isEmpty()) {
             error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
         }
-        m3uCache[playlistUrl] = parsed
+        m3uCache[cacheKey] = parsed
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            writeParsedCache(playlistUrl, CachedPlaylistData(parsed, epgUrl))
+            writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl))
         }
         return parsed
     }
@@ -339,6 +352,7 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun fetchXmlTvGuide(session: Session): Map<String, List<XmlTvProgramme>> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val playlistUrl = session.playlistUrl?.takeIf { it.isNotBlank() } ?: return@withContext emptyMap()
+        val cacheKey = cacheKeyFor(session)
         val channels = runCatching { fetchM3uChannels(session) }.getOrNull() ?: return@withContext emptyMap()
         // Compara tvg-id sem diferenciar maiúscula/minúscula -- é comum o
         // painel mandar "EPTV.Campinas" na playlist M3U e o guia XMLTV usar
@@ -362,7 +376,7 @@ class XtreamRepository(context: Context? = null) {
         //    guia universal de canais brasileiros (iptv-epg.org) -- cobre
         //    canais comuns quando nem a playlist nem o painel têm guia
         //    próprio nenhum.
-        val declaredUrl = epgUrlCache[playlistUrl]
+        val declaredUrl = epgUrlCache[cacheKey]
         val fallbackUrl = "${normalizeBase(session.serverUrl)}/xmltv.php?username=${session.username}&password=${session.password}"
         val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
         val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
@@ -420,7 +434,7 @@ class XtreamRepository(context: Context? = null) {
 
             xmlTvCache[epgUrl] = remapped
             if (remapped.isNotEmpty()) {
-                epgUrlCache[playlistUrl] = epgUrl
+                epgUrlCache[cacheKey] = epgUrl
                 return@withContext remapped
             }
         }
@@ -466,7 +480,7 @@ class XtreamRepository(context: Context? = null) {
         // padrão xmltv.php (mesmo sem a playlist declarar isso), o cache
         // já fica atualizado com a URL que funcionou de verdade.
         val guide = if (playlistUrl != null) fetchXmlTvGuide(session) else emptyMap()
-        val epgUrl = playlistUrl?.let { epgUrlCache[it] }
+        val epgUrl = if (playlistUrl != null) epgUrlCache[cacheKeyFor(session)] else null
         val normalizedName = channelName?.let { XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(it)) }
         val matchById = tvgId != null && guide.containsKey(tvgId.lowercase())
         val matchByName = !matchById && !normalizedName.isNullOrBlank() && guide.containsKey(normalizedName)

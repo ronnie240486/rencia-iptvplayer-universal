@@ -94,14 +94,17 @@ class XtreamRepository(context: Context? = null) {
         })
         .build()
 
-    // Cliente separado, com timeout bem mais curto, só pra buscar guias de
-    // EPG externos (xmltv.php do painel, guia universal) -- essas fontes
-    // são "bônus" (se falharem, o app funciona igual, só sem programação),
-    // então não vale a pena esperar até 35s por CADA uma delas. Falha
-    // rápido em vez de segurar o usuário esperando minutos.
+    // Cliente separado pras fontes de EPG externas (xmltv.php do painel,
+    // guia universal) -- ATENÇÃO: o guia universal sozinho tem uns 15MB,
+    // então precisa de um tempo de leitura generoso (uma conexão comum
+    // pode legitimamente levar mais de 8s pra baixar isso -- foi
+    // exatamente esse limite curto demais que quebrou o EPG que antes
+    // funcionava). Roda em paralelo com as outras fontes (não uma atrás
+    // da outra), então mesmo com timeout generoso, o tempo total continua
+    // sendo o da mais lenta, não a soma de todas.
     private val epgClient = client.newBuilder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(40, TimeUnit.SECONDS)
         .build()
 
     // Esse player é "universal" (qualquer provedor Xtream Codes), mas cada

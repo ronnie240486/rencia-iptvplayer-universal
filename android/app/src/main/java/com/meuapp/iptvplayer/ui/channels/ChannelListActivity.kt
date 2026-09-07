@@ -317,7 +317,7 @@ class ChannelListActivity : AppCompatActivity() {
             }
         }
         miniGuideWatchdog = watchdog
-        binding.root.postDelayed(watchdog, 50_000)
+        binding.root.postDelayed(watchdog, 95_000)
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {
@@ -327,7 +327,7 @@ class ChannelListActivity : AppCompatActivity() {
                     // demorar demais (rede lenta tentando as 3 fontes de
                     // guia), desiste e mostra o aviso genérico em vez de
                     // deixar a área de programação em branco pra sempre.
-                    val result = kotlinx.coroutines.withTimeoutOrNull(45_000) {
+                    val result = kotlinx.coroutines.withTimeoutOrNull(90_000) {
                         repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
                     }
                     if (result == null) {

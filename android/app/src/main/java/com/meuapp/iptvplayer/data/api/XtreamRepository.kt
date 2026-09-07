@@ -170,7 +170,15 @@ class XtreamRepository(context: Context? = null) {
     }
 
     private fun m3uCacheFile(cacheKey: String): File? {
-        val dir = appContext?.cacheDir ?: return null
+        // filesDir (não cacheDir) de propósito -- cacheDir é uma pasta
+        // "temporária" que o próprio Android pode limpar sozinho pra
+        // liberar espaço, sem avisar o app (comum em aparelhos com
+        // Android customizado, tipo MIUI/Xiaomi, ColorOS etc.). Isso
+        // fazia a lista salva sumir sozinha entre uma abertura e outra,
+        // forçando baixar tudo de novo mesmo sem o usuário nunca ter
+        // pedido pra limpar nada. filesDir só é apagado se o usuário
+        // desinstalar o app ou limpar os dados manualmente.
+        val dir = appContext?.filesDir ?: return null
         return File(dir, "m3u_cache_${kotlin.math.abs(cacheKey.hashCode())}.m3u")
     }
 

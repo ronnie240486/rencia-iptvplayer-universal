@@ -23,7 +23,7 @@ object InstallCacheGuard {
         if (current == -1L || lastKnown == current) return
 
         runCatching {
-            context.cacheDir.listFiles { file -> file.name.startsWith("m3u_cache_") }
+            context.filesDir.listFiles { file -> file.name.startsWith("m3u_cache_") }
                 ?.forEach { it.delete() }
         }
         prefs.edit().putLong(KEY_LAST_UPDATE_TIME, current).apply()

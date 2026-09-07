@@ -245,6 +245,10 @@ object M3uParser {
         }
     }
 
+    /** Versão pública -- usada fora do parser pra reaproveitar a
+     * classificação (ao vivo/filme/série) sem duplicar a lógica. */
+    fun contentKindPublic(channel: ParsedChannel): String = contentKind(channel)
+
     fun toLiveCategories(channels: List<ParsedChannel>): List<Category> =
         toCategories(channels.filter { contentKind(it) == "live" })
 

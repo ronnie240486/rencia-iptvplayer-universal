@@ -58,6 +58,12 @@ class XtreamRepository(context: Context? = null) {
         // sobrevive, some quando o processo do app é encerrado).
         private var appContext: Context? = null
         private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
+        // Canais ao vivo já separados por categoria -- classificar cada
+        // canal (é filme? série? ao vivo?) envolve verificações de regex
+        // por canal, e refazer isso pra LISTA INTEIRA a cada categoria que
+        // o usuário clica (em vez de só uma vez) era o que deixava trocar
+        // de categoria lento/travado.
+        private val liveStreamsByCategoryCache = mutableMapOf<String, Map<String, List<LiveStream>>>() // cacheKey -> categoryId -> canais
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -465,9 +471,22 @@ class XtreamRepository(context: Context? = null) {
     suspend fun getLiveStreams(session: Session, categoryId: String?): Result<List<LiveStream>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                val channels = fetchM3uChannels(session)
-                val targetCategory = categoryId ?: M3uParser.toLiveCategories(channels).firstOrNull()?.categoryId
-                if (targetCategory == null) emptyList() else M3uParser.toLiveStreamsFiltered(channels, targetCategory)
+                val cacheKey = cacheKeyFor(session)
+                // Calcula "canal ao vivo, separado por categoria" só UMA
+                // vez por sessão -- é bem mais pesado que parece (regex
+                // por canal pra saber se é filme/série/ao vivo), e sem
+                // esse cache, cada clique numa categoria diferente
+                // refazia esse trabalho todo pra lista INTEIRA de novo.
+                var byCategory = liveStreamsByCategoryCache[cacheKey]
+                if (byCategory == null) {
+                    val channels = fetchM3uChannels(session)
+                    val liveOnly = channels.filter { M3uParser.contentKindPublic(it) == "live" }
+                    byCategory = liveOnly.groupBy { it.groupTitle }
+                        .mapValues { (categoryName, group) -> M3uParser.toLiveStreams(group, categoryName) }
+                    liveStreamsByCategoryCache[cacheKey] = byCategory
+                }
+                val targetCategory = categoryId ?: byCategory.keys.firstOrNull()
+                if (targetCategory == null) emptyList() else byCategory[targetCategory].orEmpty()
             }
             m3uResult.getOrNull()?.let { return@runCatching it }
         }

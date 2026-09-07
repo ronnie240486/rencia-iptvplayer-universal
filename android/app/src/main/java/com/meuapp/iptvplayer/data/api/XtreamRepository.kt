@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import com.meuapp.iptvplayer.data.model.AuthResponse
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -491,6 +492,19 @@ class XtreamRepository(context: Context? = null) {
      * de verdade pra usar o get_short_epg da API Xtream). Tenta primeiro
      * pelo tvg-id (mais preciso); se não achar nada, tenta pelo NOME do
      * canal (mais tolerante a guias de terceiros que nomeiam diferente). */
+    /** Busca e guarda em cache TODAS as fontes de programação de uma vez
+     * só, ANTES do usuário escolher qualquer canal -- assim, quando ele
+     * troca de canal, olhar a programação dele é só uma consulta em
+     * memória (instantânea, sem chamada de rede nenhuma na hora). É assim
+     * que outros apps conseguem mostrar programação na hora, sem "ficar
+     * buscando" a cada troca de canal. */
+    suspend fun prefetchEpgGuide(session: Session) {
+        kotlinx.coroutines.coroutineScope {
+            launch { runCatching { fetchXmlTvGuide(session) } }
+            launch { runCatching { apiChannelIdsByName(session) } }
+        }
+    }
+
     suspend fun getEpgFromPlaylist(session: Session, tvgId: String?, channelName: String? = null): Result<List<XmlTvProgramme>> = runCatching {
         if (tvgId.isNullOrBlank() && channelName.isNullOrBlank()) return@runCatching emptyList()
         val guide = fetchXmlTvGuide(session)

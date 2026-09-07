@@ -176,6 +176,15 @@ class ChannelListActivity : AppCompatActivity() {
     private fun loadCategories() {
         val session = SessionStore.getSavedSession(this) ?: return
         setLoading(true)
+        // Busca TODA a programação (de todas as fontes) UMA VEZ, aqui no
+        // fundo, assim que a tela abre -- antes do usuário escolher
+        // qualquer canal. Sem isso, cada troca de canal disparava uma
+        // busca de rede nova, o que deixava tudo lento e fazia parecer
+        // que "nunca carrega" -- outros apps conseguem mostrar
+        // programação na hora justamente porque já buscaram tudo antes.
+        lifecycleScope.launch {
+            runCatching { repository.prefetchEpgGuide(session) }
+        }
         // Carrega as categorias JÁ, com a sessão atual -- não espera a
         // checagem de "a lista mudou no painel?" terminar primeiro. Essa
         // checagem faz uma chamada de rede separada que pode demorar até

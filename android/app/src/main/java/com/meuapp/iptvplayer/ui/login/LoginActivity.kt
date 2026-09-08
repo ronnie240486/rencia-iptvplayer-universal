@@ -137,6 +137,17 @@ class LoginActivity : AppCompatActivity() {
             finish()
             return
         }
+        // DIAGNÓSTICO TEMPORÁRIO: mostra exatamente qual parte da checagem
+        // acima falhou, pra eu poder ver o motivo exato em vez de
+        // continuar tentando adivinhar. Vou tirar isso assim que
+        // descobrir o problema real.
+        val motivo = when {
+            session == null -> "sessão salva é nula"
+            session.mac.isBlank() -> "MAC salvo está vazio"
+            !xtreamRepository.hasCachedPlaylist(session) -> "hasCachedPlaylist retornou falso (playlistUrl=${session.playlistUrl?.take(40)}, mac=${session.mac})"
+            else -> "motivo desconhecido"
+        }
+        android.widget.Toast.makeText(this, "DIAGNÓSTICO: $motivo", android.widget.Toast.LENGTH_LONG).show()
         activateDevice(silent = true)
     }
 

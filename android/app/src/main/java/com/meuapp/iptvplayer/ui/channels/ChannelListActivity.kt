@@ -202,6 +202,12 @@ class ChannelListActivity : AppCompatActivity() {
                 }
                 .onFailure { showErrorUnlessCancelled("Não foi possível carregar as categorias", it) }
             setLoading(false)
+            // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo o carregamento do
+            // cache levou de verdade -- será removido assim que o gargalo
+            // for identificado.
+            com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
+                android.widget.Toast.makeText(this@ChannelListActivity, it, android.widget.Toast.LENGTH_LONG).show()
+            }
         }
         // Confere se a playlist mudou no painel (ex: trocou de lista) EM
         // PARALELO, numa corrotina separada -- só recarrega a tela se de

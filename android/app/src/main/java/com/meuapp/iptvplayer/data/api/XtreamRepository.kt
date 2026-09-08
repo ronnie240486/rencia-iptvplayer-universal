@@ -7,6 +7,7 @@ import com.google.gson.JsonDeserializer
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import com.meuapp.iptvplayer.data.model.AuthResponse
 import com.meuapp.iptvplayer.data.model.Category
 import com.meuapp.iptvplayer.data.model.LiveStream
@@ -71,6 +72,30 @@ class XtreamRepository(context: Context? = null) {
         // trocar de categoria que Canais tinha antes de corrigir.
         private val vodByCategoryCache = mutableMapOf<String, Map<String, List<VodStream>>>()
         private val seriesByCategoryCache = mutableMapOf<String, Map<String, List<SeriesItem>>>()
+        // Trava por conta (cacheKey) -- a Home dispara prefetchEpgGuide()
+        // sozinha, em segundo plano, assim que abre. Se o usuário entra em
+        // Canais/Filmes/Séries logo em seguida, ISSO também chama
+        // fetchM3uChannels() -- sem essa trava, as duas chamadas podiam
+        // rodar ao mesmo tempo em threads DIFERENTES (Dispatchers.IO usa
+        // várias threads), cada uma lendo/montando o cache e escrevendo
+        // nos MESMOS mapas ao mesmo tempo -- o que pode corromper o
+        // resultado ou lançar uma exceção (silenciosamente engolida por
+        // runCatching lá em cima), fazendo a tela ficar esperando pra
+        // sempre sem erro nenhum aparecer. Com a trava, a segunda chamada
+        // espera a primeira terminar e reaproveita o resultado, em vez de
+        // competir por ele.
+        private val fetchMutexes = mutableMapOf<String, kotlinx.coroutines.sync.Mutex>()
+        private fun mutexFor(key: String): kotlinx.coroutines.sync.Mutex =
+            synchronized(fetchMutexes) { fetchMutexes.getOrPut(key) { kotlinx.coroutines.sync.Mutex() } }
+        // DIAGNÓSTICO TEMPORÁRIO: guarda quanto tempo cada etapa do
+        // carregamento do cache levou da ÚLTIMA vez -- pra descobrir se o
+        // gasto real é ler/desserializar o arquivo (JSON grande) ou montar
+        // os agrupamentos (Canais/Filmes/Séries por categoria). Sem isso,
+        // só dá pra adivinhar onde está a demora. Será removido assim que
+        // o gargalo real for identificado.
+        @Volatile
+        var lastLoadTiming: String? = null
+            private set
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -419,84 +444,105 @@ class XtreamRepository(context: Context? = null) {
         val cacheKey = cacheKeyFor(session)
         m3uCache[cacheKey]?.let { return it }
 
-        // Cache já PROCESSADO (não o texto bruto) -- ler e desserializar é
-        // rápido; reprocessar o texto inteiro de novo (regex em milhares
-        // de linhas) é que demorava até 40s numa lista grande, mesmo já
-        // tendo sido processado antes.
-        val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            readParsedCache(cacheKey)
-        }
-        if (cached != null && cached.channels.isNotEmpty()) {
-            m3uCache[cacheKey] = cached.channels
-            epgUrlCache[cacheKey] = cached.epgUrl
-            // Se o cache já trouxe os índices classificados, reconstrói
-            // os agrupamentos (rápido, sem regex) -- sem isso, classificar
-            // de novo mesmo já tendo o cache "morno" era o que fazia abrir
-            // Canais/Filmes/Séries continuar lento toda vez que o app
-            // fechava de verdade e abria de novo.
-            // CRÍTICO: precisa rodar em Dispatchers.IO explicitamente --
-            // esse bloco (branch do cache "novo", com índices) tinha
-            // ficado SEM o withContext(IO) que o branch de baixo (cache
-            // "antigo") tem. Sem isso, montar os objetos de exibição de
-            // TODAS as categorias de Canais/Filmes/Séries de uma vez
-            // rodava na THREAD PRINCIPAL -- numa lista grande, é isso que
-            // travava a tela (spinner parado) por até alguns minutos toda
-            // vez que o app era reaberto do zero (processo encerrado) e o
-            // usuário tocava em Canais/Filmes/Séries pela primeira vez.
-            if (cached.liveIndicesByCategory != null) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val (live, vod, series) = buildGroupsFromIndices(
-                        cached.channels,
-                        cached.liveIndicesByCategory,
-                        cached.vodIndicesByCategory.orEmpty(),
-                        cached.seriesIndicesByCategory.orEmpty()
-                    )
-                    liveStreamsByCategoryCache[cacheKey] = live
-                    vodByCategoryCache[cacheKey] = vod
-                    seriesByCategoryCache[cacheKey] = series
-                    series.forEach { (categoryId, shows) ->
-                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                    }
-                }
-            } else {
-                // Cache antigo (de antes dessa correção), sem os índices
-                // salvos ainda -- classifica agora e reescreve o cache já
-                // com tudo pronto pra próxima vez.
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
-                    val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
-                    liveStreamsByCategoryCache[cacheKey] = live
-                    vodByCategoryCache[cacheKey] = vod
-                    seriesByCategoryCache[cacheKey] = series
-                    series.forEach { (categoryId, shows) ->
-                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                    }
-                    writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
-                }
-            }
-            return cached.channels
-        }
+        // Só uma chamada de cada vez processa o cache pra essa conta --
+        // ver comentário da declaração de fetchMutexes acima.
+        return mutexFor(cacheKey).withLock {
+            // Re-checa AGORA que já está dentro da trava -- outra chamada
+            // pode ter terminado de montar tudo enquanto essa esperava.
+            m3uCache[cacheKey]?.let { return@withLock it }
 
-        val body = fetchBody(playlistUrl)
-        val epgUrl = M3uParser.extractEpgUrl(body)
-        epgUrlCache[cacheKey] = epgUrl
-        val parsed = M3uParser.parse(body)
-        if (parsed.isEmpty()) {
-            error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
-        }
-        m3uCache[cacheKey] = parsed
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
-            val (live, vod, series) = buildGroupsFromIndices(parsed, liveIdx, vodIdx, seriesIdx)
-            liveStreamsByCategoryCache[cacheKey] = live
-            vodByCategoryCache[cacheKey] = vod
-            seriesByCategoryCache[cacheKey] = series
-            series.forEach { (categoryId, shows) ->
-                shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+            val diagPrefs = appContext?.getSharedPreferences("supremus_cache_diag", Context.MODE_PRIVATE)
+            val t0 = System.nanoTime()
+
+            // Cache já PROCESSADO (não o texto bruto) -- ler e desserializar
+            // é rápido; reprocessar o texto inteiro de novo (regex em
+            // milhares de linhas) é que demorava até 40s numa lista grande,
+            // mesmo já tendo sido processado antes.
+            val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                readParsedCache(cacheKey)
             }
-            writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, liveIdx, vodIdx, seriesIdx))
+            val t1 = System.nanoTime()
+            if (cached != null && cached.channels.isNotEmpty()) {
+                m3uCache[cacheKey] = cached.channels
+                epgUrlCache[cacheKey] = cached.epgUrl
+                // Se o cache já trouxe os índices classificados, reconstrói
+                // os agrupamentos (rápido, sem regex) -- sem isso, classificar
+                // de novo mesmo já tendo o cache "morno" era o que fazia abrir
+                // Canais/Filmes/Séries continuar lento toda vez que o app
+                // fechava de verdade e abria de novo.
+                // CRÍTICO: precisa rodar em Dispatchers.IO explicitamente --
+                // esse bloco (branch do cache "novo", com índices) tinha
+                // ficado SEM o withContext(IO) que o branch de baixo (cache
+                // "antigo") tem. Sem isso, montar os objetos de exibição de
+                // TODAS as categorias de Canais/Filmes/Séries de uma vez
+                // rodava na THREAD PRINCIPAL -- numa lista grande, é isso que
+                // travava a tela (spinner parado) por até alguns minutos toda
+                // vez que o app era reaberto do zero (processo encerrado) e o
+                // usuário tocava em Canais/Filmes/Séries pela primeira vez.
+                if (cached.liveIndicesByCategory != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val (live, vod, series) = buildGroupsFromIndices(
+                            cached.channels,
+                            cached.liveIndicesByCategory,
+                            cached.vodIndicesByCategory.orEmpty(),
+                            cached.seriesIndicesByCategory.orEmpty()
+                        )
+                        liveStreamsByCategoryCache[cacheKey] = live
+                        vodByCategoryCache[cacheKey] = vod
+                        seriesByCategoryCache[cacheKey] = series
+                        series.forEach { (categoryId, shows) ->
+                            shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                        }
+                    }
+                } else {
+                    // Cache antigo (de antes dessa correção), sem os índices
+                    // salvos ainda -- classifica agora e reescreve o cache já
+                    // com tudo pronto pra próxima vez.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
+                        val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
+                        liveStreamsByCategoryCache[cacheKey] = live
+                        vodByCategoryCache[cacheKey] = vod
+                        seriesByCategoryCache[cacheKey] = series
+                        series.forEach { (categoryId, shows) ->
+                            shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                        }
+                        writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
+                    }
+                }
+                val t2 = System.nanoTime()
+                val fileSize = runCatching { m3uCacheFile(cacheKey)?.length() ?: -1L }.getOrDefault(-1L)
+                val timing = "cache HIT: leitura+parse=${(t1 - t0) / 1_000_000}ms, montagem=${(t2 - t1) / 1_000_000}ms, canais=${cached.channels.size}, arquivo=${fileSize}B"
+                lastLoadTiming = timing
+                diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
+                return@withLock cached.channels
+            }
+
+            val body = fetchBody(playlistUrl)
+            val epgUrl = M3uParser.extractEpgUrl(body)
+            epgUrlCache[cacheKey] = epgUrl
+            val parsed = M3uParser.parse(body)
+            if (parsed.isEmpty()) {
+                error("A playlist M3U não contém nenhum canal reconhecível (recebido: \"${body.take(150).replace("\n", " ")}\").")
+            }
+            m3uCache[cacheKey] = parsed
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
+                val (live, vod, series) = buildGroupsFromIndices(parsed, liveIdx, vodIdx, seriesIdx)
+                liveStreamsByCategoryCache[cacheKey] = live
+                vodByCategoryCache[cacheKey] = vod
+                seriesByCategoryCache[cacheKey] = series
+                series.forEach { (categoryId, shows) ->
+                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                }
+                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, liveIdx, vodIdx, seriesIdx))
+            }
+            val t2 = System.nanoTime()
+            val timing = "cache MISS (baixou e processou agora): total=${(t2 - t0) / 1_000_000}ms, canais=${parsed.size}"
+            lastLoadTiming = timing
+            diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
+            parsed
         }
-        return parsed
     }
 
     /** Busca e interpreta o guia XMLTV referenciado na própria playlist M3U

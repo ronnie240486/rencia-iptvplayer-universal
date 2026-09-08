@@ -101,6 +101,12 @@ class VodActivity : AppCompatActivity() {
                     }
                 }
             setLoading(false)
+            // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo o carregamento do
+            // cache levou de verdade -- será removido assim que o gargalo
+            // for identificado.
+            com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
+                android.widget.Toast.makeText(this@VodActivity, it, android.widget.Toast.LENGTH_LONG).show()
+            }
         }
         lifecycleScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(6000) { renciaRepository.refreshSessionIfChanged(session).getOrNull() }?.let { updated ->

@@ -65,13 +65,31 @@ class XtreamRepository(context: Context? = null) {
         // por canal, e refazer isso pra LISTA INTEIRA a cada categoria que
         // o usuário clica (em vez de só uma vez) era o que deixava trocar
         // de categoria lento/travado.
-        private val liveStreamsByCategoryCache = mutableMapOf<String, Map<String, List<LiveStream>>>() // cacheKey -> categoryId -> canais
-        // Mesma ideia acima, só que pra Filmes e Séries -- classificar
+        private val liveStreamsByCategoryCache = mutableMapOf<String, MutableMap<String, List<LiveStream>>>() // cacheKey -> categoryId -> canais (montado SOB DEMANDA, só quando o usuário abre a categoria)
+        // Mesma ideia acima, só que pra Filmes -- classificar
         // conteúdo (é filme? série? ao vivo?) é caro (regex por item), e
         // sem isso as telas de Filmes/Séries tinham o mesmo travamento ao
         // trocar de categoria que Canais tinha antes de corrigir.
-        private val vodByCategoryCache = mutableMapOf<String, Map<String, List<VodStream>>>()
+        private val vodByCategoryCache = mutableMapOf<String, MutableMap<String, List<VodStream>>>() // idem, sob demanda
+        // Séries continua sendo montada de uma vez só (não sob demanda) --
+        // Favoritos pode abrir uma série DIRETO (sem passar pela tela de
+        // categorias primeiro) usando só o seriesId salvo, e isso depende
+        // de m3uSeriesLookup já estar populado. Sem montar todas as
+        // categorias de série de antemão, um favorito de série aberto logo
+        // depois de reabrir o app (processo novo, sem ter navegado em
+        // Séries ainda) quebraria. Canais/Filmes não têm esse problema --
+        // Favoritos guarda o link de stream direto, não depende de nada
+        // disso pra tocar.
         private val seriesByCategoryCache = mutableMapOf<String, Map<String, List<SeriesItem>>>()
+        // Índices (não os objetos montados) de Canais e Filmes por
+        // categoria -- só os NOMES das categorias e quais posições da
+        // lista pertencem a cada uma. Ler isso é praticamente instantâneo
+        // (só chaves de mapa, nenhuma reconstrução de objeto); a lista de
+        // exibição de verdade só é montada quando o usuário abre aquela
+        // categoria específica (ver liveStreamsByCategoryCache/
+        // vodByCategoryCache acima).
+        private val liveIndicesByCategoryCache = mutableMapOf<String, Map<String, List<Int>>>()
+        private val vodIndicesByCategoryCache = mutableMapOf<String, Map<String, List<Int>>>()
         // Trava por conta (cacheKey) -- a Home dispara prefetchEpgGuide()
         // sozinha, em segundo plano, assim que abre. Se o usuário entra em
         // Canais/Filmes/Séries logo em seguida, ISSO também chama
@@ -176,6 +194,16 @@ class XtreamRepository(context: Context? = null) {
         val key = cacheKeyFor(session).ifBlank { return }
         m3uCache.remove(key)
         epgUrlCache.remove(key)
+        // Preexistente: essa função já não limpava os caches por categoria
+        // antes -- ficavam "presos" com dados da lista ANTIGA depois de
+        // "Atualizar conteúdo" trocar de lista. Agora mais importante
+        // ainda, já que os índices de Canais/Filmes precisam ficar
+        // sincronizados com a lista de canais correta.
+        liveIndicesByCategoryCache.remove(key)
+        vodIndicesByCategoryCache.remove(key)
+        liveStreamsByCategoryCache.remove(key)
+        vodByCategoryCache.remove(key)
+        seriesByCategoryCache.remove(key)
         runCatching { m3uCacheFile(key)?.delete() }
     }
 
@@ -214,23 +242,43 @@ class XtreamRepository(context: Context? = null) {
 
     /** Reconstrói os agrupamentos de verdade (LiveStream/VodStream/
      * SeriesItem por categoria) a partir dos ÍNDICES já classificados --
-     * rápido (sem regex nenhuma), só monta os objetos de exibição. */
-    private fun buildGroupsFromIndices(
+     * rápido (sem regex nenhuma), só monta os objetos de exibição.
+     * Usada só pra Séries agora (ver comentário de seriesByCategoryCache
+     * acima) -- Canais/Filmes usam as versões SOB DEMANDA abaixo. */
+    private fun buildSeriesGroupsFromIndices(
         channels: List<M3uParser.ParsedChannel>,
-        liveIndices: Map<String, List<Int>>,
-        vodIndices: Map<String, List<Int>>,
         seriesIndices: Map<String, List<Int>>
-    ): Triple<Map<String, List<LiveStream>>, Map<String, List<VodStream>>, Map<String, List<SeriesItem>>> {
-        val live = liveIndices.mapValues { (categoryName, indices) ->
-            M3uParser.toLiveStreams(indices.map { channels[it] }, categoryName)
-        }
-        val vod = vodIndices.mapValues { (categoryName, indices) ->
-            M3uParser.toVodStreams(indices.map { channels[it] }, categoryName)
-        }
-        val series = seriesIndices.mapValues { (categoryName, indices) ->
+    ): Map<String, List<SeriesItem>> =
+        seriesIndices.mapValues { (categoryName, indices) ->
             M3uParser.toSeriesShowsFromSubset(indices.map { channels[it] }, categoryName)
         }
-        return Triple(live, vod, series)
+
+    /** Monta (ou reaproveita, se já montado antes) a lista de exibição de
+     * UMA categoria de Canais específica -- só faz o trabalho pesado
+     * (regex por canal, via toLiveStreams) pra categoria que o usuário
+     * realmente abriu, não pra todas de uma vez. Isso é o que torna abrir
+     * a lista de categorias praticamente instantâneo numa lista grande:
+     * mostrar os NOMES das categorias só precisa das chaves do mapa de
+     * índices, não precisa montar objeto nenhum. */
+    private fun buildLiveCategoryLazy(cacheKey: String, categoryName: String): List<LiveStream> {
+        val perCategory = liveStreamsByCategoryCache.getOrPut(cacheKey) { mutableMapOf() }
+        perCategory[categoryName]?.let { return it }
+        val channels = m3uCache[cacheKey] ?: return emptyList()
+        val indices = liveIndicesByCategoryCache[cacheKey]?.get(categoryName) ?: return emptyList()
+        val built = M3uParser.toLiveStreams(indices.map { channels[it] }, categoryName)
+        perCategory[categoryName] = built
+        return built
+    }
+
+    /** Mesma ideia de buildLiveCategoryLazy, pra Filmes. */
+    private fun buildVodCategoryLazy(cacheKey: String, categoryName: String): List<VodStream> {
+        val perCategory = vodByCategoryCache.getOrPut(cacheKey) { mutableMapOf() }
+        perCategory[categoryName]?.let { return it }
+        val channels = m3uCache[cacheKey] ?: return emptyList()
+        val indices = vodIndicesByCategoryCache[cacheKey]?.get(categoryName) ?: return emptyList()
+        val built = M3uParser.toVodStreams(indices.map { channels[it] }, categoryName)
+        perCategory[categoryName] = built
+        return built
     }
 
     // ---- Formato de cache em disco: texto simples, feito à mão -- SEM
@@ -493,27 +541,26 @@ class XtreamRepository(context: Context? = null) {
         if (cached != null && cached.channels.isNotEmpty()) {
             m3uCache[cacheKey] = cached.channels
             epgUrlCache[cacheKey] = cached.epgUrl
-            // Mesma correção crítica de fetchM3uChannels: essa montagem
-            // precisa rodar em Dispatchers.IO, não na thread principal.
+            // Canais/Filmes: só guarda os ÍNDICES (nomes de categoria +
+            // posições) -- rápido, sem montar objeto nenhum. A lista de
+            // exibição de cada categoria só é montada quando o usuário
+            // abrir ela de verdade (ver buildLiveCategoryLazy/
+            // buildVodCategoryLazy). Séries continua eager (ver comentário
+            // de seriesByCategoryCache).
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 if (cached.liveIndicesByCategory != null) {
-                    val (live, vod, series) = buildGroupsFromIndices(
-                        cached.channels,
-                        cached.liveIndicesByCategory,
-                        cached.vodIndicesByCategory.orEmpty(),
-                        cached.seriesIndicesByCategory.orEmpty()
-                    )
-                    liveStreamsByCategoryCache[cacheKey] = live
-                    vodByCategoryCache[cacheKey] = vod
+                    liveIndicesByCategoryCache[cacheKey] = cached.liveIndicesByCategory
+                    vodIndicesByCategoryCache[cacheKey] = cached.vodIndicesByCategory.orEmpty()
+                    val series = buildSeriesGroupsFromIndices(cached.channels, cached.seriesIndicesByCategory.orEmpty())
                     seriesByCategoryCache[cacheKey] = series
                     series.forEach { (categoryId, shows) ->
                         shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
                     }
                 } else {
                     val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
-                    val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
-                    liveStreamsByCategoryCache[cacheKey] = live
-                    vodByCategoryCache[cacheKey] = vod
+                    liveIndicesByCategoryCache[cacheKey] = liveIdx
+                    vodIndicesByCategoryCache[cacheKey] = vodIdx
+                    val series = buildSeriesGroupsFromIndices(cached.channels, seriesIdx)
                     seriesByCategoryCache[cacheKey] = series
                     series.forEach { (categoryId, shows) ->
                         shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
@@ -555,9 +602,9 @@ class XtreamRepository(context: Context? = null) {
             if (parsed.isNotEmpty()) {
                 m3uCache[cacheKey] = parsed
                 val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
-                val (live, vod, series) = buildGroupsFromIndices(parsed, liveIdx, vodIdx, seriesIdx)
-                liveStreamsByCategoryCache[cacheKey] = live
-                vodByCategoryCache[cacheKey] = vod
+                liveIndicesByCategoryCache[cacheKey] = liveIdx
+                vodIndicesByCategoryCache[cacheKey] = vodIdx
+                val series = buildSeriesGroupsFromIndices(parsed, seriesIdx)
                 seriesByCategoryCache[cacheKey] = series
                 series.forEach { (categoryId, shows) ->
                     shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
@@ -595,30 +642,21 @@ class XtreamRepository(context: Context? = null) {
             if (cached != null && cached.channels.isNotEmpty()) {
                 m3uCache[cacheKey] = cached.channels
                 epgUrlCache[cacheKey] = cached.epgUrl
-                // Se o cache já trouxe os índices classificados, reconstrói
-                // os agrupamentos (rápido, sem regex) -- sem isso, classificar
-                // de novo mesmo já tendo o cache "morno" era o que fazia abrir
-                // Canais/Filmes/Séries continuar lento toda vez que o app
-                // fechava de verdade e abria de novo.
-                // CRÍTICO: precisa rodar em Dispatchers.IO explicitamente --
-                // esse bloco (branch do cache "novo", com índices) tinha
-                // ficado SEM o withContext(IO) que o branch de baixo (cache
-                // "antigo") tem. Sem isso, montar os objetos de exibição de
-                // TODAS as categorias de Canais/Filmes/Séries de uma vez
-                // rodava na THREAD PRINCIPAL -- numa lista grande, é isso que
-                // travava a tela (spinner parado) por até alguns minutos toda
-                // vez que o app era reaberto do zero (processo encerrado) e o
-                // usuário tocava em Canais/Filmes/Séries pela primeira vez.
+                // Canais/Filmes: só guarda os ÍNDICES (instantâneo, sem
+                // montar objeto nenhum) -- a lista de exibição de cada
+                // categoria só é montada quando o usuário abre ela de
+                // verdade (buildLiveCategoryLazy/buildVodCategoryLazy).
+                // Isso é o que elimina a "montagem" (que chegava a ~3-4s
+                // pra TODAS as categorias) do caminho crítico de abrir a
+                // tela. Séries continua eager (ver seriesByCategoryCache).
+                // CRÍTICO: mesmo sendo mais leve agora, ainda roda em
+                // Dispatchers.IO explicitamente -- não pode voltar a rodar
+                // na thread principal (era isso que travava a tela antes).
                 if (cached.liveIndicesByCategory != null) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val (live, vod, series) = buildGroupsFromIndices(
-                            cached.channels,
-                            cached.liveIndicesByCategory,
-                            cached.vodIndicesByCategory.orEmpty(),
-                            cached.seriesIndicesByCategory.orEmpty()
-                        )
-                        liveStreamsByCategoryCache[cacheKey] = live
-                        vodByCategoryCache[cacheKey] = vod
+                        liveIndicesByCategoryCache[cacheKey] = cached.liveIndicesByCategory
+                        vodIndicesByCategoryCache[cacheKey] = cached.vodIndicesByCategory.orEmpty()
+                        val series = buildSeriesGroupsFromIndices(cached.channels, cached.seriesIndicesByCategory.orEmpty())
                         seriesByCategoryCache[cacheKey] = series
                         series.forEach { (categoryId, shows) ->
                             shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
@@ -630,9 +668,9 @@ class XtreamRepository(context: Context? = null) {
                     // com tudo pronto pra próxima vez.
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
-                        val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
-                        liveStreamsByCategoryCache[cacheKey] = live
-                        vodByCategoryCache[cacheKey] = vod
+                        liveIndicesByCategoryCache[cacheKey] = liveIdx
+                        vodIndicesByCategoryCache[cacheKey] = vodIdx
+                        val series = buildSeriesGroupsFromIndices(cached.channels, seriesIdx)
                         seriesByCategoryCache[cacheKey] = series
                         series.forEach { (categoryId, shows) ->
                             shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
@@ -641,7 +679,7 @@ class XtreamRepository(context: Context? = null) {
                     }
                 }
                 val t2 = System.nanoTime()
-                val timing = "V2 | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | parse=${timedRead.parseMs}ms | montagem=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
+                val timing = "V2 | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | parse=${timedRead.parseMs}ms | montagem(series)=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
                 lastLoadTiming = timing
                 diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
                 return@withLock cached.channels
@@ -657,9 +695,9 @@ class XtreamRepository(context: Context? = null) {
             m3uCache[cacheKey] = parsed
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
-                val (live, vod, series) = buildGroupsFromIndices(parsed, liveIdx, vodIdx, seriesIdx)
-                liveStreamsByCategoryCache[cacheKey] = live
-                vodByCategoryCache[cacheKey] = vod
+                liveIndicesByCategoryCache[cacheKey] = liveIdx
+                vodIndicesByCategoryCache[cacheKey] = vodIdx
+                val series = buildSeriesGroupsFromIndices(parsed, seriesIdx)
                 seriesByCategoryCache[cacheKey] = series
                 series.forEach { (categoryId, shows) ->
                     shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
@@ -811,23 +849,21 @@ class XtreamRepository(context: Context? = null) {
     suspend fun getLiveCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                // Reaproveita o MESMO cache de "canais ao vivo por
-                // categoria" usado em getLiveStreams (calculado uma vez só
-                // por sessão) -- sem isso, abrir a tela de Canais
-                // reclassificava a lista INTEIRA de novo (mesma
-                // verificação por regex, cara, pra cada canal) toda vez,
-                // mesmo já tendo feito isso segundos antes.
+                // Só precisa dos NOMES das categorias aqui -- lê direto do
+                // mapa de ÍNDICES (instantâneo, sem montar LiveStream
+                // nenhum). Antes isso dependia da lista de exibição de
+                // TODAS as categorias já estar montada, o que era o gasto
+                // real (regex + alocação de objeto por canal) toda vez que
+                // essa tela abria.
                 val cacheKey = cacheKeyFor(session)
-                var byCategory = liveStreamsByCategoryCache[cacheKey]
-                if (byCategory == null) {
-                    // fetchM3uChannels já deixa esse cache pronto (seja
-                    // lendo do disco ou processando na hora) -- só
-                    // precisa ler de novo depois de chamar, sem
-                    // reclassificar aqui à toa.
+                var idx = liveIndicesByCategoryCache[cacheKey]
+                if (idx == null) {
+                    // fetchM3uChannels já deixa esse índice pronto (seja
+                    // lendo do disco ou processando na hora).
                     fetchM3uChannels(session)
-                    byCategory = liveStreamsByCategoryCache[cacheKey].orEmpty()
+                    idx = liveIndicesByCategoryCache[cacheKey].orEmpty()
                 }
-                byCategory.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
+                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
@@ -843,23 +879,16 @@ class XtreamRepository(context: Context? = null) {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
                 val cacheKey = cacheKeyFor(session)
-                // Calcula "canal ao vivo, separado por categoria" só UMA
-                // vez por sessão -- é bem mais pesado que parece (regex
-                // por canal pra saber se é filme/série/ao vivo), e sem
-                // esse cache, cada clique numa categoria diferente
-                // refazia esse trabalho todo pra lista INTEIRA de novo.
-                var byCategory = liveStreamsByCategoryCache[cacheKey]
-                if (byCategory == null) {
-                    // fetchM3uChannels já deixa liveStreamsByCategoryCache
-                    // pronto (disco ou na hora) -- antes, esse trecho
-                    // reclassificava a lista INTEIRA de novo do zero em vez
-                    // de reaproveitar esse trabalho, dobrando à toa o custo
-                    // de abrir Canais numa lista grande.
+                var idx = liveIndicesByCategoryCache[cacheKey]
+                if (idx == null) {
                     fetchM3uChannels(session)
-                    byCategory = liveStreamsByCategoryCache[cacheKey].orEmpty()
+                    idx = liveIndicesByCategoryCache[cacheKey].orEmpty()
                 }
-                val targetCategory = categoryId ?: byCategory.keys.firstOrNull()
-                if (targetCategory == null) emptyList() else byCategory[targetCategory].orEmpty()
+                val targetCategory = categoryId ?: idx.keys.firstOrNull()
+                if (targetCategory == null) emptyList()
+                else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    buildLiveCategoryLazy(cacheKey, targetCategory)
+                }
             }
             m3uResult.getOrNull()?.let { return@runCatching it }
         }
@@ -899,8 +928,16 @@ class XtreamRepository(context: Context? = null) {
     suspend fun getVodCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                vodStreamsByCategory(session).keys.sortedBy { it.lowercase() }
-                    .map { Category(categoryId = it, categoryName = it) }
+                // Só os NOMES das categorias -- lê direto do mapa de
+                // ÍNDICES, sem montar VodStream nenhum (ver comentário
+                // equivalente em getLiveCategories).
+                val cacheKey = cacheKeyFor(session)
+                var idx = vodIndicesByCategoryCache[cacheKey]
+                if (idx == null) {
+                    fetchM3uChannels(session)
+                    idx = vodIndicesByCategoryCache[cacheKey].orEmpty()
+                }
+                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
@@ -912,24 +949,27 @@ class XtreamRepository(context: Context? = null) {
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
-    /** Calcula "filmes já separados por categoria" só UMA vez por sessão
-     * (fica em cache) -- classificar cada canal (é filme? série? ao vivo?)
-     * envolve regex por canal, caro se refeito toda vez que troca de
-     * categoria. */
-    private suspend fun vodStreamsByCategory(session: Session): Map<String, List<VodStream>> {
+    /** Garante que o mapa de ÍNDICES de Filmes por categoria está pronto
+     * (não monta VodStream nenhum ainda -- isso só acontece sob demanda,
+     * em buildVodCategoryLazy, quando uma categoria específica é aberta). */
+    private suspend fun ensureVodIndices(session: Session): Map<String, List<Int>> {
         val cacheKey = cacheKeyFor(session)
-        vodByCategoryCache[cacheKey]?.let { return it }
-        // fetchM3uChannels já deixa esse cache pronto (disco ou na hora).
+        vodIndicesByCategoryCache[cacheKey]?.let { return it }
+        // fetchM3uChannels já deixa esse índice pronto (disco ou na hora).
         fetchM3uChannels(session)
-        return vodByCategoryCache[cacheKey].orEmpty()
+        return vodIndicesByCategoryCache[cacheKey].orEmpty()
     }
 
     suspend fun getVodStreams(session: Session, categoryId: String?): Result<List<VodStream>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                val byCategory = vodStreamsByCategory(session)
-                val targetCategory = categoryId ?: byCategory.keys.firstOrNull()
-                if (targetCategory == null) emptyList() else byCategory[targetCategory].orEmpty()
+                val cacheKey = cacheKeyFor(session)
+                val idx = ensureVodIndices(session)
+                val targetCategory = categoryId ?: idx.keys.firstOrNull()
+                if (targetCategory == null) emptyList()
+                else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    buildVodCategoryLazy(cacheKey, targetCategory)
+                }
             }
             m3uResult.getOrNull()?.let { return@runCatching it }
         }

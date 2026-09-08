@@ -53,11 +53,13 @@ class RenciaRepository {
     /** Busca a configuração completa oficial (rota prioritária pra apps
      * novos) -- traz status do MAC, mensagens, imagens, ícones e listas
      * ativas, tudo de uma vez. */
-    suspend fun fetchAppConfig(mac: String): AppConfigResponse? = runCatching {
-        val response = api.getAppConfig(APP_ID, mac)
-        if (!response.isSuccessful) return@runCatching null
-        response.body()
-    }.getOrNull()
+    suspend fun fetchAppConfig(mac: String): AppConfigResponse? = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+        runCatching {
+            val response = api.getAppConfig(APP_ID, mac)
+            if (!response.isSuccessful) return@runCatching null
+            response.body()
+        }.getOrNull()
+    }
 
     /** Fluxo real de ativação: MAC do aparelho -> rota oficial de
      * configuração confirma acesso -> devolve a URL da playlist Xtream já
@@ -187,7 +189,7 @@ class RenciaRepository {
      * quando o usuário abrir a área de atualização manualmente. */
     suspend fun checkForUpdate(rawMac: String): Result<AppUpdateResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.getAppUpdate(APP_ID, mac)
+        val response = kotlinx.coroutines.withTimeout(10_000) { api.getAppUpdate(APP_ID, mac) }
         if (!response.isSuccessful) error("Não foi possível verificar atualização")
         response.body() ?: error("Resposta de atualização vazia")
     }
@@ -197,7 +199,7 @@ class RenciaRepository {
      * aparelho "online" no painel e registra o que está sendo assistido. */
     suspend fun sendHeartbeat(rawMac: String, currentContent: String? = null): Result<HeartbeatResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.sendHeartbeat(mac, currentContent)
+        val response = kotlinx.coroutines.withTimeout(10_000) { api.sendHeartbeat(mac, currentContent) }
         if (!response.isSuccessful) error("Heartbeat falhou (HTTP ${response.code()})")
         response.body() ?: error("Resposta de heartbeat vazia")
     }
@@ -207,7 +209,7 @@ class RenciaRepository {
      * estado de troca automática de lista (failover). */
     suspend fun getListNotifications(rawMac: String): Result<ListNotificationsResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.getListNotifications(mac)
+        val response = kotlinx.coroutines.withTimeout(10_000) { api.getListNotifications(mac) }
         if (!response.isSuccessful) error("Não foi possível buscar avisos")
         response.body() ?: error("Resposta de avisos vazia")
     }
@@ -226,14 +228,14 @@ class RenciaRepository {
      * automaticamente (failover). */
     suspend fun reportPlaybackFailure(rawMac: String, activeListNumber: Int): Result<PlaybackFailureResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.reportPlaybackFailure(mapOf("mac" to mac, "active_list_number" to activeListNumber))
+        val response = kotlinx.coroutines.withTimeout(10_000) { api.reportPlaybackFailure(mapOf("mac" to mac, "active_list_number" to activeListNumber)) }
         if (!response.isSuccessful) error("Não foi possível reportar a falha (HTTP ${response.code()})")
         response.body() ?: error("Resposta de falha de reprodução vazia")
     }
 
     suspend fun getRemoteCommands(rawMac: String): Result<List<RemoteCommand>> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.getRemoteCommands(mac)
+        val response = kotlinx.coroutines.withTimeout(10_000) { api.getRemoteCommands(mac) }
         if (!response.isSuccessful) return@runCatching emptyList()
         response.body()?.commands.orEmpty()
     }

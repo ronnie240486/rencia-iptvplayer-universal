@@ -204,9 +204,14 @@ class ChannelListActivity : AppCompatActivity() {
             setLoading(false)
             // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo o carregamento do
             // cache levou de verdade -- será removido assim que o gargalo
-            // for identificado.
+            // for identificado. AlertDialog (não Toast) pra não cortar o
+            // texto.
             com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
-                android.widget.Toast.makeText(this@ChannelListActivity, it, android.widget.Toast.LENGTH_LONG).show()
+                androidx.appcompat.app.AlertDialog.Builder(this@ChannelListActivity)
+                    .setTitle("Diagnóstico (temporário)")
+                    .setMessage(it)
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         }
         // Confere se a playlist mudou no painel (ex: trocou de lista) EM

@@ -101,11 +101,14 @@ class VodActivity : AppCompatActivity() {
                     }
                 }
             setLoading(false)
-            // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo o carregamento do
-            // cache levou de verdade -- será removido assim que o gargalo
-            // for identificado.
+            // DIAGNÓSTICO TEMPORÁRIO -- AlertDialog (não Toast) pra não
+            // cortar o texto.
             com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
-                android.widget.Toast.makeText(this@VodActivity, it, android.widget.Toast.LENGTH_LONG).show()
+                androidx.appcompat.app.AlertDialog.Builder(this@VodActivity)
+                    .setTitle("Diagnóstico (temporário)")
+                    .setMessage(it)
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         }
         lifecycleScope.launch {

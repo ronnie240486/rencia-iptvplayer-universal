@@ -245,6 +245,30 @@ class XtreamRepository(context: Context? = null) {
         return runCatching { gson.fromJson(json, CachedPlaylistData::class.java) }.getOrNull()
     }
 
+    /** DIAGNÓSTICO TEMPORÁRIO: resultado com os tempos de CADA etapa
+     * separados -- ler bytes do disco é uma coisa (I/O puro), converter
+     * o texto em objetos com Gson é outra (CPU, reflection) -- sem medir
+     * separado, não dá pra saber qual das duas é a real vilã quando o
+     * total demora mais do que deveria pra uma lista pequena. */
+    private data class TimedCacheRead(
+        val data: CachedPlaylistData?,
+        val fileBytes: Long,
+        val readMs: Long,
+        val parseMs: Long
+    )
+
+    private fun readParsedCacheTimed(cacheKey: String): TimedCacheRead {
+        val file = m3uCacheFile(cacheKey)?.takeIf { it.exists() }
+            ?: return TimedCacheRead(null, -1L, 0L, 0L)
+        val r0 = System.nanoTime()
+        val json = runCatching { file.readText() }.getOrNull()
+        val r1 = System.nanoTime()
+        if (json == null) return TimedCacheRead(null, file.length(), (r1 - r0) / 1_000_000, 0L)
+        val data = runCatching { gson.fromJson(json, CachedPlaylistData::class.java) }.getOrNull()
+        val r2 = System.nanoTime()
+        return TimedCacheRead(data, file.length(), (r1 - r0) / 1_000_000, (r2 - r1) / 1_000_000)
+    }
+
     private fun writeParsedCache(cacheKey: String, data: CachedPlaylistData) {
         val diagPrefs = appContext?.getSharedPreferences("supremus_cache_diag", Context.MODE_PRIVATE)
         val file = m3uCacheFile(cacheKey)
@@ -458,9 +482,10 @@ class XtreamRepository(context: Context? = null) {
             // é rápido; reprocessar o texto inteiro de novo (regex em
             // milhares de linhas) é que demorava até 40s numa lista grande,
             // mesmo já tendo sido processado antes.
-            val cached = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                readParsedCache(cacheKey)
+            val timedRead = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                readParsedCacheTimed(cacheKey)
             }
+            val cached = timedRead.data
             val t1 = System.nanoTime()
             if (cached != null && cached.channels.isNotEmpty()) {
                 m3uCache[cacheKey] = cached.channels
@@ -511,8 +536,7 @@ class XtreamRepository(context: Context? = null) {
                     }
                 }
                 val t2 = System.nanoTime()
-                val fileSize = runCatching { m3uCacheFile(cacheKey)?.length() ?: -1L }.getOrDefault(-1L)
-                val timing = "cache HIT: leitura+parse=${(t1 - t0) / 1_000_000}ms, montagem=${(t2 - t1) / 1_000_000}ms, canais=${cached.channels.size}, arquivo=${fileSize}B"
+                val timing = "HIT | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | gson=${timedRead.parseMs}ms | montagem=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
                 lastLoadTiming = timing
                 diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
                 return@withLock cached.channels
@@ -538,7 +562,7 @@ class XtreamRepository(context: Context? = null) {
                 writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, liveIdx, vodIdx, seriesIdx))
             }
             val t2 = System.nanoTime()
-            val timing = "cache MISS (baixou e processou agora): total=${(t2 - t0) / 1_000_000}ms, canais=${parsed.size}"
+            val timing = "MISS (baixou agora) | total=${(t2 - t0) / 1_000_000}ms | canais=${parsed.size}"
             lastLoadTiming = timing
             diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
             parsed

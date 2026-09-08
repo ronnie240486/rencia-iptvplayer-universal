@@ -1,6 +1,11 @@
 package com.meuapp.iptvplayer.data.api
 
-import com.meuapp.iptvplayer.data.model.DeviceCheckResponse
+import com.meuapp.iptvplayer.data.model.AppConfigResponse
+import com.meuapp.iptvplayer.data.model.AppUpdateResponse
+import com.meuapp.iptvplayer.data.model.HeartbeatResponse
+import com.meuapp.iptvplayer.data.model.ListNotificationsResponse
+import com.meuapp.iptvplayer.data.model.PlaybackFailureResponse
+import com.meuapp.iptvplayer.data.model.RemoteCommand
 import com.meuapp.iptvplayer.data.model.UltraConfigResponse
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -11,7 +16,11 @@ import java.util.concurrent.TimeUnit
 class RenciaRepository {
     companion object {
         const val BASE_URL = "https://renciaapp.manus.space/"
-        const val APP_ID = "rencia"
+        // "supremus" é o app_id oficial pra esse app (Supreme) no
+        // documento de integração universal do painel -- id errado
+        // ("rencia") fazia o app cair sempre nas rotas de compatibilidade
+        // antigas, em vez da rota oficial nova (mais completa e confiável).
+        const val APP_ID = "supremus"
 
         // Cada tela (Canais, Filmes, Séries) confere se a lista mudou no
         // painel toda vez que abre -- isso é bom pra detectar troca de
@@ -41,12 +50,37 @@ class RenciaRepository {
     suspend fun verifyCustomerAccess(login: String, password: String): Result<Session> =
         authenticateCustomer(login, password)
 
-    /** Fluxo real de ativação: MAC do aparelho -> painel confirma acesso
-     * (checkDevice) -> devolve a URL da playlist Xtream já liberada pra
-     * esse MAC. Se checkDevice não trouxer a URL, tenta a fonte alternativa
-     * (getPlaylistSources) antes de desistir. */
+    /** Busca a configuração completa oficial (rota prioritária pra apps
+     * novos) -- traz status do MAC, mensagens, imagens, ícones e listas
+     * ativas, tudo de uma vez. */
+    suspend fun fetchAppConfig(mac: String): AppConfigResponse? = runCatching {
+        val response = api.getAppConfig(APP_ID, mac)
+        if (!response.isSuccessful) return@runCatching null
+        response.body()
+    }.getOrNull()
+
+    /** Fluxo real de ativação: MAC do aparelho -> rota oficial de
+     * configuração confirma acesso -> devolve a URL da playlist Xtream já
+     * liberada pra esse MAC. Se a rota oficial não tiver a URL, tenta a
+     * fonte alternativa (getPlaylistSources) antes de desistir. Se a
+     * própria rota oficial não responder (painel antigo, aparelho ainda
+     * não migrado), cai pra rota de compatibilidade antiga. */
     suspend fun authenticateByMac(rawMac: String): Result<Session> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido. O aparelho deve exibir 12 dígitos hexadecimais.")
+
+        val config = fetchAppConfig(mac)
+        if (config != null) {
+            if (!config.registered) error("Este MAC não está cadastrado no painel.")
+            if (!config.allowed) error("Acesso bloqueado para este dispositivo${config.status?.let { " ($it)" } ?: ""}.")
+            val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
+                ?: fetchFallbackPlaylistUrl(mac)
+                ?: error("Nenhuma playlist foi liberada para este MAC.")
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+        }
+
+        // Rota oficial não respondeu -- cai pra rota antiga de
+        // compatibilidade (checkDevice), pra não deixar o app sem
+        // funcionar em painéis mais antigos.
         val deviceResponse = api.checkDevice(mac)
         if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
         val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
@@ -61,8 +95,8 @@ class RenciaRepository {
     }
 
     /** Alguns dispositivos só têm a playlist cadastrada na fonte alternativa
-     * (guim.php), não no checkDevice principal -- tenta essa antes de
-     * desistir de vez. */
+     * (guim.php), não na rota de configuração principal -- tenta essa
+     * antes de desistir de vez. */
     private suspend fun fetchFallbackPlaylistUrl(mac: String): String? = runCatching {
         val response = api.getPlaylistSources(mac)
         if (!response.isSuccessful) return null
@@ -77,6 +111,7 @@ class RenciaRepository {
         appName: String?,
         status: String?,
         expirationDate: String?,
+        activeListNumber: Int = 1,
     ): Session {
         val url = playlistUrl.toHttpUrlOrNull()
             ?: error("A playlist recebida não possui uma URL válida.")
@@ -99,7 +134,8 @@ class RenciaRepository {
             clientLogin = null,
             clientPassword = null,
             layoutId = "classic",
-            playlistUrl = playlistUrl
+            playlistUrl = playlistUrl,
+            activeListNumber = activeListNumber
         )
     }
 
@@ -117,6 +153,17 @@ class RenciaRepository {
         if (now - lastChecked < REFRESH_THROTTLE_MS) return@runCatching null
         lastRefreshCheckAt[mac] = now
 
+        val config = fetchAppConfig(mac)
+        if (config != null) {
+            if (!config.registered) error("Este MAC não está mais cadastrado no painel.")
+            if (!config.allowed) error("Acesso bloqueado para este dispositivo${config.status?.let { " ($it)" } ?: ""}.")
+            val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
+                ?: fetchFallbackPlaylistUrl(mac)
+                ?: error("Nenhuma playlist está liberada para este MAC.")
+            if (playlistUrl == currentSession.playlistUrl) return@runCatching null
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+        }
+
         val deviceResponse = api.checkDevice(mac)
         if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
         val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
@@ -132,21 +179,103 @@ class RenciaRepository {
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
     }
 
+    // ---------------------------------------------------------------
+    // Rotas novas do documento de integração universal
+    // ---------------------------------------------------------------
+
+    /** Verifica se tem atualização nova do app -- chamar na abertura e
+     * quando o usuário abrir a área de atualização manualmente. */
+    suspend fun checkForUpdate(rawMac: String): Result<AppUpdateResponse> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val response = api.getAppUpdate(APP_ID, mac)
+        if (!response.isSuccessful) error("Não foi possível verificar atualização")
+        response.body() ?: error("Resposta de atualização vazia")
+    }
+
+    /** Chamar imediatamente ao trocar de canal/filme/série, e de novo a
+     * cada 60s enquanto o mesmo conteúdo continuar tocando -- mantém o
+     * aparelho "online" no painel e registra o que está sendo assistido. */
+    suspend fun sendHeartbeat(rawMac: String, currentContent: String? = null): Result<HeartbeatResponse> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val response = api.sendHeartbeat(mac, currentContent)
+        if (!response.isSuccessful) error("Heartbeat falhou (HTTP ${response.code()})")
+        response.body() ?: error("Resposta de heartbeat vazia")
+    }
+
+    /** Chamar junto do heartbeat, a cada 60s, e quando o app volta pro
+     * primeiro plano -- traz avisos técnicos, vencimento da conta e
+     * estado de troca automática de lista (failover). */
+    suspend fun getListNotifications(rawMac: String): Result<ListNotificationsResponse> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val response = api.getListNotifications(mac)
+        if (!response.isSuccessful) error("Não foi possível buscar avisos")
+        response.body() ?: error("Resposta de avisos vazia")
+    }
+
+    /** Confirma que um aviso já foi mostrado pro usuário -- não apaga o
+     * aviso do painel, só registra a leitura no aparelho. */
+    suspend fun ackListNotification(rawMac: String, alertId: String): Result<Unit> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        api.ackListNotification(mapOf("mac" to mac, "alert_id" to alertId))
+        Unit
+    }
+
+    /** Reportar SÓ quando o player detectar erro real de rede/timeout/
+     * indisponibilidade -- nunca em pausa do usuário ou erro visual da
+     * interface. O painel pode responder trocando a lista ativa
+     * automaticamente (failover). */
+    suspend fun reportPlaybackFailure(rawMac: String, activeListNumber: Int): Result<PlaybackFailureResponse> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val response = api.reportPlaybackFailure(mapOf("mac" to mac, "active_list_number" to activeListNumber))
+        if (!response.isSuccessful) error("Não foi possível reportar a falha (HTTP ${response.code()})")
+        response.body() ?: error("Resposta de falha de reprodução vazia")
+    }
+
+    suspend fun getRemoteCommands(rawMac: String): Result<List<RemoteCommand>> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val response = api.getRemoteCommands(mac)
+        if (!response.isSuccessful) return@runCatching emptyList()
+        response.body()?.commands.orEmpty()
+    }
+
+    /** Confirma a execução (ou falha) de um comando remoto -- só confirma
+     * comando que o app de fato executou. */
+    suspend fun ackRemoteCommand(rawMac: String, commandId: String, executed: Boolean, resultMessage: String? = null): Result<Unit> = runCatching {
+        val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val body = mutableMapOf(
+            "mac" to mac,
+            "command_id" to commandId,
+            "status" to if (executed) "executed" else "failed"
+        )
+        resultMessage?.let { body["result_message"] = it }
+        api.ackRemoteCommand(body)
+        Unit
+    }
+
     /** Uma lista/playlist disponível para o MAC, com um rótulo legível pra
      * mostrar no seletor de "trocar de lista". */
     data class PlaylistOption(val label: String, val playlistUrl: String)
 
     /** Alguns paineis cadastram MAIS DE UMA lista pro mesmo MAC (ex: lista
-     * principal + listas extras/backup). Junta a lista principal
-     * (checkDevice) com as alternativas (getPlaylistSources), sem repetir
-     * URLs iguais. */
+     * principal + listas extras/backup). Junta a lista principal (rota
+     * oficial de configuração, com fallback pro checkDevice antigo) com as
+     * alternativas (getPlaylistSources), sem repetir URLs iguais. */
     suspend fun listAvailablePlaylists(rawMac: String): Result<List<PlaylistOption>> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val options = mutableListOf<PlaylistOption>()
 
-        runCatching { api.checkDevice(mac) }.getOrNull()?.body()?.urlM3u8
-            ?.takeIf { it.isNotBlank() }
-            ?.let { options.add(PlaylistOption("Lista principal", it)) }
+        val config = fetchAppConfig(mac)
+        if (config != null) {
+            config.playlistUrls.forEachIndexed { index, url ->
+                if (url.isNotBlank() && options.none { it.playlistUrl == url }) {
+                    options.add(PlaylistOption(if (index == 0) "Lista principal" else "Lista ${index + 1}", url))
+                }
+            }
+        } else {
+            runCatching { api.checkDevice(mac) }.getOrNull()?.body()?.urlM3u8
+                ?.takeIf { it.isNotBlank() }
+                ?.let { options.add(PlaylistOption("Lista principal", it)) }
+        }
 
         runCatching { api.getPlaylistSources(mac) }.getOrNull()?.body()?.data
             ?.forEachIndexed { index, source ->
@@ -163,15 +292,19 @@ class RenciaRepository {
     }
 
     /** Troca a sessão ativa pra usar explicitamente a playlist escolhida
-     * (em vez de sempre a "principal" que o checkDevice devolve) --
+     * (em vez de sempre a "principal" que a configuração devolve) --
      * usado pelo seletor "trocar de lista" em Ajustes. */
     suspend fun switchToPlaylist(rawMac: String, playlistUrl: String): Result<Session> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
+        val config = fetchAppConfig(mac)
+        if (config != null) {
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+        }
         val deviceCheck = runCatching { api.checkDevice(mac) }.getOrNull()?.body()
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate)
     }
 
-    suspend fun verifyAccess(rawMac: String): Result<DeviceCheckResponse> = runCatching {
+    suspend fun verifyAccess(rawMac: String): Result<com.meuapp.iptvplayer.data.model.DeviceCheckResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val response = api.checkDevice(mac)
         if (!response.isSuccessful) error("Não foi possível verificar o acesso")

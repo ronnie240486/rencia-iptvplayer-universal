@@ -32,7 +32,8 @@ data class Session(
     val clientLogin: String? = null,
     val clientPassword: String? = null,
     val layoutId: String? = null,
-    val playlistUrl: String? = null
+    val playlistUrl: String? = null,
+    val activeListNumber: Int = 1
 )
 
 class XtreamRepository(context: Context? = null) {

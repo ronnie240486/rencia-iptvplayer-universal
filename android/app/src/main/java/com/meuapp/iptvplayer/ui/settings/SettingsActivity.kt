@@ -77,6 +77,9 @@ class SettingsActivity : AppCompatActivity() {
         configureRow(R.id.rowSwitchPlaylist, "⇄", "Trocar de lista", "Ver listas disponíveis para este MAC") {
             showPlaylistPicker(mac)
         }
+        configureRow(R.id.rowCheckUpdate, "⟳", "Verificar atualização", "Ver se tem uma versão nova do app") {
+            checkForAppUpdate(mac)
+        }
         configureRow(R.id.rowDevice, "ID", "MAC do dispositivo", mac.ifBlank { "Não informado" }) {
             if (mac.isBlank()) {
                 showInfo("MAC do dispositivo", "Nenhum MAC foi cadastrado ainda.")
@@ -162,6 +165,43 @@ class SettingsActivity : AppCompatActivity() {
     /** O painel pode ter mais de uma lista cadastrada pro mesmo MAC (lista
      * principal + alternativas/backup) -- mostra as opções e troca a sessão
      * ativa pra qualquer uma que o usuário escolher. */
+    private fun checkForAppUpdate(mac: String) {
+        if (mac.isBlank()) {
+            showInfo("Verificar atualização", "Nenhum MAC cadastrado.")
+            return
+        }
+        Toast.makeText(this, "Verificando...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            renciaRepository.checkForUpdate(mac)
+                .onSuccess { update ->
+                    if (update.updateAvailable) {
+                        val message = buildString {
+                            append("Versão nova disponível")
+                            update.version?.let { append(": $it") }
+                            update.releaseNotes?.takeIf { it.isNotBlank() }?.let { append("\n\n$it") }
+                        }
+                        androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                            .setTitle("Atualização disponível")
+                            .setMessage(message)
+                            .setNegativeButton(if (update.forceUpdate) null else "Agora não", null)
+                            .setPositiveButton("Baixar") { _, _ ->
+                                val link = update.apkLink ?: update.url
+                                if (!link.isNullOrBlank()) {
+                                    runCatching {
+                                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link)))
+                                    }
+                                }
+                            }
+                            .setCancelable(!update.forceUpdate)
+                            .show()
+                    } else {
+                        showInfo("Verificar atualização", "Você já está usando a versão mais recente.")
+                    }
+                }
+                .onFailure { error -> showInfo("Verificar atualização", error.message ?: "Não foi possível verificar agora.") }
+        }
+    }
+
     private fun showPlaylistPicker(mac: String) {
         if (mac.isBlank()) {
             showInfo("Trocar de lista", "Nenhum MAC cadastrado.")

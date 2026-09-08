@@ -237,6 +237,25 @@ class PlayerActivity : AppCompatActivity() {
         }
         binding.tvPlaybackError.visibility = View.VISIBLE
         binding.btnRetryPlayer.visibility = View.VISIBLE
+        // Reporta pro painel SÓ quando esgotou todas as opções locais
+        // (não a cada variante que falha) -- é isso que pode disparar a
+        // troca automática pra uma lista de reserva (failover), se o
+        // painel tiver uma configurada.
+        reportPlaybackFailureIfPossible()
+    }
+
+    private fun reportPlaybackFailureIfPossible() {
+        val session = SessionStore.getSavedSession(this) ?: return
+        if (session.mac.isBlank()) return
+        lifecycleScope.launch {
+            runCatching {
+                com.meuapp.iptvplayer.data.api.RenciaRepository().reportPlaybackFailure(session.mac, session.activeListNumber)
+            }.getOrNull()?.getOrNull()?.let { result ->
+                if (result.switchApplied) {
+                    Toast.makeText(this@PlayerActivity, result.message ?: "Lista alternativa ativada pelo painel", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     override fun onStop() {

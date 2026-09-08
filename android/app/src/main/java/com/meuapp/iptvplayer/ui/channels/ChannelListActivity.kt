@@ -262,6 +262,14 @@ class ChannelListActivity : AppCompatActivity() {
         binding.tvSelectedChannel.text = channel.name
         binding.backdropView.setPoster(channel.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.btnRetryMiniPlayer.visibility = View.GONE
+        // Avisa o painel imediatamente que trocou de canal (documento de
+        // integracao universal) -- mantem o aparelho "online" e registra
+        // o que esta sendo assistido.
+        if (session.mac.isNotBlank()) {
+            lifecycleScope.launch {
+                runCatching { com.meuapp.iptvplayer.data.api.RenciaRepository().sendHeartbeat(session.mac, channel.name) }
+            }
+        }
         val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId)
         // Se já é esse mesmo canal tocando (ex: voltou da tela cheia),
         // playUrl não faz nada -- continua exatamente de onde estava, sem

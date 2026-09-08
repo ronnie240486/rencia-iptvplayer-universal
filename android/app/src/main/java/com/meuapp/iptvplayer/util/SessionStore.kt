@@ -16,6 +16,7 @@ object SessionStore {
     private const val KEY_CLIENT_PASSWORD = "client_password"
     private const val KEY_LAYOUT = "assigned_layout"
     private const val KEY_PLAYLIST = "playlist_url"
+    private const val KEY_ACTIVE_LIST_NUMBER = "active_list_number"
 
     fun saveSession(context: Context, session: Session) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -30,6 +31,7 @@ object SessionStore {
             .putString(KEY_CLIENT_PASSWORD, session.clientPassword)
             .putString(KEY_LAYOUT, session.layoutId)
             .putString(KEY_PLAYLIST, session.playlistUrl)
+            .putInt(KEY_ACTIVE_LIST_NUMBER, session.activeListNumber)
             .apply()
     }
 
@@ -49,7 +51,8 @@ object SessionStore {
             clientLogin = prefs.getString(KEY_CLIENT_LOGIN, null),
             clientPassword = prefs.getString(KEY_CLIENT_PASSWORD, null),
             layoutId = prefs.getString(KEY_LAYOUT, null),
-            playlistUrl = prefs.getString(KEY_PLAYLIST, null)
+            playlistUrl = prefs.getString(KEY_PLAYLIST, null),
+            activeListNumber = prefs.getInt(KEY_ACTIVE_LIST_NUMBER, 1)
         )
     }
 

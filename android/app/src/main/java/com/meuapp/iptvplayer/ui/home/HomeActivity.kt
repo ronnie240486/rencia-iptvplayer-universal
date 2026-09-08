@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import coil.load
 import com.meuapp.iptvplayer.data.api.RenciaRepository
 import com.meuapp.iptvplayer.databinding.ActivityHomeBinding
 import com.meuapp.iptvplayer.ui.channels.ChannelListActivity
@@ -36,6 +37,7 @@ class HomeActivity : AppCompatActivity() {
 
     companion object {
         private const val ACCESS_CHECK_INTERVAL_MS = 300_000L
+        private const val HEARTBEAT_INTERVAL_MS = 60_000L
     }
 
     private lateinit var binding: ActivityHomeBinding
@@ -45,6 +47,18 @@ class HomeActivity : AppCompatActivity() {
         override fun run() {
             verifyAccessNow()
             accessHandler.postDelayed(this, ACCESS_CHECK_INTERVAL_MS)
+        }
+    }
+    // Ciclo de 60s do documento de integracao: heartbeat (mantem o
+    // aparelho "online" no painel) + avisos de lista/vencimento/troca
+    // automatica de lista (failover). Roda junto com a checagem de acesso
+    // acima, mas em intervalo mais curto (60s, nao 5 minutos) porque e
+    // isso que o painel espera pra considerar o aparelho ativo.
+    private val heartbeatHandler = Handler(Looper.getMainLooper())
+    private val heartbeatRunnable: Runnable = object : Runnable {
+        override fun run() {
+            runHeartbeatCycle()
+            heartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
         }
     }
 
@@ -67,6 +81,16 @@ class HomeActivity : AppCompatActivity() {
 
         bindHomeActions()
         setupContinueWatching()
+        // Aplica a configuração visual (ícones/logo) já guardada, se
+        // tiver, na hora -- sem esperar rede nenhuma. Depois busca uma
+        // versão nova em segundo plano e atualiza se mudou algo.
+        applyVisualConfig(com.meuapp.iptvplayer.util.AppConfigStore.read(this))
+        lifecycleScope.launch {
+            runCatching { RenciaRepository().fetchAppConfig(session.mac) }.getOrNull()?.let { config ->
+                com.meuapp.iptvplayer.util.AppConfigStore.save(this@HomeActivity, config)
+                applyVisualConfig(com.meuapp.iptvplayer.util.AppConfigStore.read(this@HomeActivity))
+            }
+        }
         // Começa a buscar a programação (EPG) AQUI, bem cedo, ainda na
         // Home -- sem pressa nenhuma, sem limite de tempo, rodando
         // quietinho no fundo. Assim, quando o usuário abrir Live TV daqui
@@ -108,6 +132,17 @@ class HomeActivity : AppCompatActivity() {
         verifyAccessNow()
         accessHandler.removeCallbacks(accessCheckRunnable)
         accessHandler.postDelayed(accessCheckRunnable, ACCESS_CHECK_INTERVAL_MS)
+        // Ciclo de 60s (heartbeat + avisos) -- roda enquanto o app estiver
+        // em primeiro plano, começando já na hora que a Home aparece.
+        runHeartbeatCycle()
+        heartbeatHandler.removeCallbacks(heartbeatRunnable)
+        heartbeatHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL_MS)
+    }
+
+    override fun onStop() {
+        heartbeatHandler.removeCallbacks(heartbeatRunnable)
+        accessHandler.removeCallbacks(accessCheckRunnable)
+        super.onStop()
     }
 
     override fun onResume() {
@@ -115,11 +150,6 @@ class HomeActivity : AppCompatActivity() {
         // Atualiza "Continuar assistindo" toda vez que volta pra Home (ex:
         // depois de assistir algo), não só na primeira abertura.
         if (::binding.isInitialized) refreshContinueWatching()
-    }
-
-    override fun onStop() {
-        accessHandler.removeCallbacks(accessCheckRunnable)
-        super.onStop()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -152,6 +182,28 @@ class HomeActivity : AppCompatActivity() {
         val items = com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this)
         continueWatchingAdapter.submitList(items)
         binding.continueWatchingSection.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    /** Aplica os ícones/logo dinâmicos que o painel configurou (documento
+     * de integração universal) -- se não tiver nenhum configurado, os
+     * ícones locais padrão continuam do jeito que já estavam. */
+    private fun applyVisualConfig(config: com.meuapp.iptvplayer.util.AppConfigStore.SavedVisualConfig) {
+        if (!::binding.isInitialized) return
+        config.iconLiveTv?.takeIf { it.isNotBlank() }?.let { binding.btnLiveTv.load(it) { crossfade(true) } }
+        config.iconMovies?.takeIf { it.isNotBlank() }?.let { binding.btnVod.load(it) { crossfade(true) } }
+        config.iconSeries?.takeIf { it.isNotBlank() }?.let { binding.btnSeries.load(it) { crossfade(true) } }
+        if (!config.messageTitle.isNullOrBlank() || !config.messageText.isNullOrBlank()) {
+            val prefs = getSharedPreferences("supremus_shown_messages", MODE_PRIVATE)
+            val messageKey = "${config.messageTitle}|${config.messageText}"
+            if (prefs.getString("last_shown", null) != messageKey) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(config.messageTitle ?: "Aviso")
+                    .setMessage(config.messageText)
+                    .setPositiveButton("Entendi", null)
+                    .show()
+                prefs.edit().putString("last_shown", messageKey).apply()
+            }
+        }
     }
 
     private fun bindHomeActions() {
@@ -233,6 +285,71 @@ class HomeActivity : AppCompatActivity() {
         val text = message.orEmpty()
         return text.contains("não está mais cadastrado", ignoreCase = true) ||
             text.contains("acesso bloqueado", ignoreCase = true)
+    }
+
+    /** Ciclo de 60s do documento de integracao universal: manda heartbeat
+     * (mantem o aparelho "online" no painel, registra o que esta sendo
+     * assistido) e busca avisos de lista/vencimento/troca automatica --
+     * so age em cima do que o painel realmente mandar, nunca decide nada
+     * por conta propria. */
+    private fun runHeartbeatCycle() {
+        val session = SessionStore.getSavedSession(this) ?: return
+        if (session.mac.isBlank()) return
+        lifecycleScope.launch {
+            val currentContent = com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this@HomeActivity).firstOrNull()?.title
+            runCatching { renciaRepository.sendHeartbeat(session.mac, currentContent) }
+
+            renciaRepository.getListNotifications(session.mac).onSuccess { notif ->
+                // Vencimento: mostra o modal UMA VEZ por chave (nao repete
+                // o mesmo aviso toda hora).
+                val expiration = notif.expiration
+                if (expiration?.modalKey != null &&
+                    !com.meuapp.iptvplayer.util.AppConfigStore.hasShownExpirationModal(this@HomeActivity, expiration.modalKey)
+                ) {
+                    androidx.appcompat.app.AlertDialog.Builder(this@HomeActivity)
+                        .setTitle(expiration.title ?: "Aviso de vencimento")
+                        .setMessage(expiration.message ?: "Sua assinatura está prestes a vencer.")
+                        .setPositiveButton("Entendi", null)
+                        .show()
+                    com.meuapp.iptvplayer.util.AppConfigStore.markExpirationModalShown(this@HomeActivity, expiration.modalKey)
+                }
+
+                // Avisos tecnicos ainda nao confirmados.
+                notif.notifications.filterNot { it.acknowledged }.forEach { alert ->
+                    if (alert.title != null || alert.message != null) {
+                        Toast.makeText(this@HomeActivity, "${alert.title.orEmpty()} ${alert.message.orEmpty()}".trim(), Toast.LENGTH_LONG).show()
+                    }
+                    alert.id?.let { id -> runCatching { renciaRepository.ackListNotification(session.mac, id) } }
+                }
+
+                // Lista mudou/precisa sincronizar (troca automatica de
+                // lista, failover) -- so o painel decide isso, o app so
+                // obedece. Sincroniza em segundo plano, sem interromper.
+                if (notif.playlistSyncRequired) {
+                    renciaRepository.refreshSessionIfChanged(session).onSuccess { updated ->
+                        if (updated != null) {
+                            val withListNumber = updated.copy(activeListNumber = notif.activeListNumber ?: updated.activeListNumber)
+                            SessionStore.saveSession(this@HomeActivity, withListNumber)
+                            notif.playlistSyncMessage?.let {
+                                Toast.makeText(this@HomeActivity, it, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Comandos remotos pendentes -- so confirma o que o app
+            // realmente reconhece e executa.
+            renciaRepository.getRemoteCommands(session.mac).onSuccess { commands ->
+                commands.forEach { command ->
+                    val id = command.commandId ?: command.id ?: return@forEach
+                    // Nenhum comando remoto específico está implementado
+                    // ainda -- confirma como "não executado" pra não ficar
+                    // pendente pra sempre no painel.
+                    runCatching { renciaRepository.ackRemoteCommand(session.mac, id, executed = false, resultMessage = "Comando não suportado por esta versão do app") }
+                }
+            }
+        }
     }
 
     private fun verifyAccessNow() {

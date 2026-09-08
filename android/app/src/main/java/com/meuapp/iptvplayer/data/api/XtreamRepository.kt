@@ -156,8 +156,38 @@ class XtreamRepository(context: Context? = null) {
 
     private data class CachedPlaylistData(
         val channels: List<M3uParser.ParsedChannel>,
-        val epgUrl: String?
+        val epgUrl: String?,
+        // Guarda os agrupamentos JÁ CLASSIFICADOS (canal ao vivo/filme/
+        // série, já separados por categoria) -- essa classificação é cara
+        // (regex por canal). Sem guardar isso em DISCO (não só na
+        // memória), toda vez que o app fechava de verdade (processo
+        // encerrado) e abria de novo, essa classificação tinha que ser
+        // refeita do zero, mesmo com a lista de canais já em cache --
+        // era exatamente isso que fazia "abrir de novo" continuar lento.
+        val liveByCategory: Map<String, List<LiveStream>>? = null,
+        val vodByCategory: Map<String, List<VodStream>>? = null,
+        val seriesByCategory: Map<String, List<SeriesItem>>? = null
     )
+
+    /** Classifica e agrupa os 3 tipos de conteúdo de uma vez, a partir da
+     * lista de canais já processada -- usado tanto ao salvar em cache pela
+     * primeira vez quanto ao ler do cache em disco (se o cache antigo, de
+     * antes dessa correção, não tiver esses agrupamentos salvos ainda). */
+    private fun classifyAndGroup(channels: List<M3uParser.ParsedChannel>): Triple<Map<String, List<LiveStream>>, Map<String, List<VodStream>>, Map<String, List<SeriesItem>>> {
+        val liveByCategory = channels.filter { M3uParser.contentKindPublic(it) == "live" }
+            .groupBy { it.groupTitle }
+            .mapValues { (categoryName, group) -> M3uParser.toLiveStreams(group, categoryName) }
+        val vodByCategory = channels.filter { M3uParser.contentKindPublic(it) == "vod" }
+            .groupBy { it.groupTitle }
+            .mapValues { (categoryName, group) -> M3uParser.toVodStreams(group, categoryName) }
+        val seriesCategories = M3uParser.toSeriesCategories(channels).map { it.categoryId }
+        val seriesByCategory = seriesCategories.associateWith { categoryId ->
+            M3uParser.toSeriesShows(channels, categoryId).also { shows ->
+                shows.forEach { m3uSeriesLookup[it.seriesId] = categoryId to it.name }
+            }
+        }
+        return Triple(liveByCategory, vodByCategory, seriesByCategory)
+    }
 
     /** Lê o cache já PROCESSADO (não o texto M3U bruto) -- ler do disco e
      * so DESSERIALIZAR é rápido; o que demorava de verdade (até 40s numa
@@ -274,6 +304,20 @@ class XtreamRepository(context: Context? = null) {
         if (cached != null && cached.channels.isNotEmpty()) {
             m3uCache[cacheKey] = cached.channels
             epgUrlCache[cacheKey] = cached.epgUrl
+            if (cached.liveByCategory != null) {
+                liveStreamsByCategoryCache[cacheKey] = cached.liveByCategory
+                cached.vodByCategory?.let { vodByCategoryCache[cacheKey] = it }
+                cached.seriesByCategory?.let { seriesByCategoryCache[cacheKey] = it }
+                cached.seriesByCategory?.forEach { (categoryId, shows) ->
+                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                }
+            } else {
+                val (live, vod, series) = classifyAndGroup(cached.channels)
+                liveStreamsByCategoryCache[cacheKey] = live
+                vodByCategoryCache[cacheKey] = vod
+                seriesByCategoryCache[cacheKey] = series
+                writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, live, vod, series))
+            }
             onProgress(1, 1)
             return@runCatching
         }
@@ -307,7 +351,11 @@ class XtreamRepository(context: Context? = null) {
             val parsed = M3uParser.parse(text)
             if (parsed.isNotEmpty()) {
                 m3uCache[cacheKey] = parsed
-                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrlCache[cacheKey]))
+                val (live, vod, series) = classifyAndGroup(parsed)
+                liveStreamsByCategoryCache[cacheKey] = live
+                vodByCategoryCache[cacheKey] = vod
+                seriesByCategoryCache[cacheKey] = series
+                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrlCache[cacheKey], live, vod, series))
             }
         }
     }
@@ -328,6 +376,31 @@ class XtreamRepository(context: Context? = null) {
         if (cached != null && cached.channels.isNotEmpty()) {
             m3uCache[cacheKey] = cached.channels
             epgUrlCache[cacheKey] = cached.epgUrl
+            // Se o cache já trouxe os agrupamentos prontos (canal ao
+            // vivo/filme/série por categoria), usa direto -- sem isso,
+            // classificar de novo mesmo já tendo o cache "morno" era o que
+            // fazia abrir Canais/Filmes/Séries continuar lento TODA VEZ
+            // que o app fechava de verdade (processo encerrado) e abria
+            // de novo, mesmo com a lista de canais já salva.
+            if (cached.liveByCategory != null) {
+                liveStreamsByCategoryCache[cacheKey] = cached.liveByCategory
+                cached.vodByCategory?.let { vodByCategoryCache[cacheKey] = it }
+                cached.seriesByCategory?.let { seriesByCategoryCache[cacheKey] = it }
+                cached.seriesByCategory?.forEach { (categoryId, shows) ->
+                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                }
+            } else {
+                // Cache antigo (de antes dessa correção), sem os
+                // agrupamentos salvos ainda -- classifica agora e
+                // reescreve o cache já com tudo pronto pra próxima vez.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val (live, vod, series) = classifyAndGroup(cached.channels)
+                    liveStreamsByCategoryCache[cacheKey] = live
+                    vodByCategoryCache[cacheKey] = vod
+                    seriesByCategoryCache[cacheKey] = series
+                    writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, live, vod, series))
+                }
+            }
             return cached.channels
         }
 
@@ -340,7 +413,11 @@ class XtreamRepository(context: Context? = null) {
         }
         m3uCache[cacheKey] = parsed
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl))
+            val (live, vod, series) = classifyAndGroup(parsed)
+            liveStreamsByCategoryCache[cacheKey] = live
+            vodByCategoryCache[cacheKey] = vod
+            seriesByCategoryCache[cacheKey] = series
+            writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, live, vod, series))
         }
         return parsed
     }
@@ -482,11 +559,12 @@ class XtreamRepository(context: Context? = null) {
                 val cacheKey = cacheKeyFor(session)
                 var byCategory = liveStreamsByCategoryCache[cacheKey]
                 if (byCategory == null) {
-                    val channels = fetchM3uChannels(session)
-                    val liveOnly = channels.filter { M3uParser.contentKindPublic(it) == "live" }
-                    byCategory = liveOnly.groupBy { it.groupTitle }
-                        .mapValues { (categoryName, group) -> M3uParser.toLiveStreams(group, categoryName) }
-                    liveStreamsByCategoryCache[cacheKey] = byCategory
+                    // fetchM3uChannels já deixa esse cache pronto (seja
+                    // lendo do disco ou processando na hora) -- só
+                    // precisa ler de novo depois de chamar, sem
+                    // reclassificar aqui à toa.
+                    fetchM3uChannels(session)
+                    byCategory = liveStreamsByCategoryCache[cacheKey].orEmpty()
                 }
                 byCategory.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
             }
@@ -578,12 +656,9 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun vodStreamsByCategory(session: Session): Map<String, List<VodStream>> {
         val cacheKey = cacheKeyFor(session)
         vodByCategoryCache[cacheKey]?.let { return it }
-        val channels = fetchM3uChannels(session)
-        val vodOnly = channels.filter { M3uParser.contentKindPublic(it) == "vod" }
-        val byCategory = vodOnly.groupBy { it.groupTitle }
-            .mapValues { (categoryName, group) -> M3uParser.toVodStreams(group, categoryName) }
-        vodByCategoryCache[cacheKey] = byCategory
-        return byCategory
+        // fetchM3uChannels já deixa esse cache pronto (disco ou na hora).
+        fetchM3uChannels(session)
+        return vodByCategoryCache[cacheKey].orEmpty()
     }
 
     suspend fun getVodStreams(session: Session, categoryId: String?): Result<List<VodStream>> = runCatching {
@@ -633,15 +708,9 @@ class XtreamRepository(context: Context? = null) {
     private suspend fun seriesByCategory(session: Session): Map<String, List<SeriesItem>> {
         val cacheKey = cacheKeyFor(session)
         seriesByCategoryCache[cacheKey]?.let { return it }
-        val channels = fetchM3uChannels(session)
-        val categories = M3uParser.toSeriesCategories(channels).map { it.categoryId }
-        val byCategory = categories.associateWith { categoryId ->
-            M3uParser.toSeriesShows(channels, categoryId).also { shows ->
-                shows.forEach { m3uSeriesLookup[it.seriesId] = categoryId to it.name }
-            }
-        }
-        seriesByCategoryCache[cacheKey] = byCategory
-        return byCategory
+        // fetchM3uChannels já deixa esse cache pronto (disco ou na hora).
+        fetchM3uChannels(session)
+        return seriesByCategoryCache[cacheKey].orEmpty()
     }
 
     suspend fun getSeries(session: Session, categoryId: String?): Result<List<SeriesItem>> = runCatching {

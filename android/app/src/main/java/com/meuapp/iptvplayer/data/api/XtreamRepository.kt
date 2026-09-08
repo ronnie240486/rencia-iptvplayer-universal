@@ -339,29 +339,33 @@ class XtreamRepository(context: Context? = null) {
         if (cached != null && cached.channels.isNotEmpty()) {
             m3uCache[cacheKey] = cached.channels
             epgUrlCache[cacheKey] = cached.epgUrl
-            if (cached.liveIndicesByCategory != null) {
-                val (live, vod, series) = buildGroupsFromIndices(
-                    cached.channels,
-                    cached.liveIndicesByCategory,
-                    cached.vodIndicesByCategory.orEmpty(),
-                    cached.seriesIndicesByCategory.orEmpty()
-                )
-                liveStreamsByCategoryCache[cacheKey] = live
-                vodByCategoryCache[cacheKey] = vod
-                seriesByCategoryCache[cacheKey] = series
-                series.forEach { (categoryId, shows) ->
-                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+            // Mesma correção crítica de fetchM3uChannels: essa montagem
+            // precisa rodar em Dispatchers.IO, não na thread principal.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                if (cached.liveIndicesByCategory != null) {
+                    val (live, vod, series) = buildGroupsFromIndices(
+                        cached.channels,
+                        cached.liveIndicesByCategory,
+                        cached.vodIndicesByCategory.orEmpty(),
+                        cached.seriesIndicesByCategory.orEmpty()
+                    )
+                    liveStreamsByCategoryCache[cacheKey] = live
+                    vodByCategoryCache[cacheKey] = vod
+                    seriesByCategoryCache[cacheKey] = series
+                    series.forEach { (categoryId, shows) ->
+                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                    }
+                } else {
+                    val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
+                    val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
+                    liveStreamsByCategoryCache[cacheKey] = live
+                    vodByCategoryCache[cacheKey] = vod
+                    seriesByCategoryCache[cacheKey] = series
+                    series.forEach { (categoryId, shows) ->
+                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                    }
+                    writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
                 }
-            } else {
-                val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
-                val (live, vod, series) = buildGroupsFromIndices(cached.channels, liveIdx, vodIdx, seriesIdx)
-                liveStreamsByCategoryCache[cacheKey] = live
-                vodByCategoryCache[cacheKey] = vod
-                seriesByCategoryCache[cacheKey] = series
-                series.forEach { (categoryId, shows) ->
-                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                }
-                writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
             }
             onProgress(1, 1)
             return@runCatching
@@ -430,18 +434,29 @@ class XtreamRepository(context: Context? = null) {
             // de novo mesmo já tendo o cache "morno" era o que fazia abrir
             // Canais/Filmes/Séries continuar lento toda vez que o app
             // fechava de verdade e abria de novo.
+            // CRÍTICO: precisa rodar em Dispatchers.IO explicitamente --
+            // esse bloco (branch do cache "novo", com índices) tinha
+            // ficado SEM o withContext(IO) que o branch de baixo (cache
+            // "antigo") tem. Sem isso, montar os objetos de exibição de
+            // TODAS as categorias de Canais/Filmes/Séries de uma vez
+            // rodava na THREAD PRINCIPAL -- numa lista grande, é isso que
+            // travava a tela (spinner parado) por até alguns minutos toda
+            // vez que o app era reaberto do zero (processo encerrado) e o
+            // usuário tocava em Canais/Filmes/Séries pela primeira vez.
             if (cached.liveIndicesByCategory != null) {
-                val (live, vod, series) = buildGroupsFromIndices(
-                    cached.channels,
-                    cached.liveIndicesByCategory,
-                    cached.vodIndicesByCategory.orEmpty(),
-                    cached.seriesIndicesByCategory.orEmpty()
-                )
-                liveStreamsByCategoryCache[cacheKey] = live
-                vodByCategoryCache[cacheKey] = vod
-                seriesByCategoryCache[cacheKey] = series
-                series.forEach { (categoryId, shows) ->
-                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val (live, vod, series) = buildGroupsFromIndices(
+                        cached.channels,
+                        cached.liveIndicesByCategory,
+                        cached.vodIndicesByCategory.orEmpty(),
+                        cached.seriesIndicesByCategory.orEmpty()
+                    )
+                    liveStreamsByCategoryCache[cacheKey] = live
+                    vodByCategoryCache[cacheKey] = vod
+                    seriesByCategoryCache[cacheKey] = series
+                    series.forEach { (categoryId, shows) ->
+                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
+                    }
                 }
             } else {
                 // Cache antigo (de antes dessa correção), sem os índices
@@ -651,11 +666,13 @@ class XtreamRepository(context: Context? = null) {
                 // refazia esse trabalho todo pra lista INTEIRA de novo.
                 var byCategory = liveStreamsByCategoryCache[cacheKey]
                 if (byCategory == null) {
-                    val channels = fetchM3uChannels(session)
-                    val liveOnly = channels.filter { M3uParser.contentKindPublic(it) == "live" }
-                    byCategory = liveOnly.groupBy { it.groupTitle }
-                        .mapValues { (categoryName, group) -> M3uParser.toLiveStreams(group, categoryName) }
-                    liveStreamsByCategoryCache[cacheKey] = byCategory
+                    // fetchM3uChannels já deixa liveStreamsByCategoryCache
+                    // pronto (disco ou na hora) -- antes, esse trecho
+                    // reclassificava a lista INTEIRA de novo do zero em vez
+                    // de reaproveitar esse trabalho, dobrando à toa o custo
+                    // de abrir Canais numa lista grande.
+                    fetchM3uChannels(session)
+                    byCategory = liveStreamsByCategoryCache[cacheKey].orEmpty()
                 }
                 val targetCategory = categoryId ?: byCategory.keys.firstOrNull()
                 if (targetCategory == null) emptyList() else byCategory[targetCategory].orEmpty()

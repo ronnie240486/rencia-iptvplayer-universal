@@ -720,7 +720,16 @@ class XtreamRepository(context: Context? = null) {
                 continue
             }
             val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
-            val parsed = runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
+            // CRÍTICO: precisa rodar em Dispatchers.IO -- esse parser
+            // (XmlPullParser + regex por programa) processa um arquivo que
+            // pode ter dezenas de milhares de entradas (principalmente a
+            // fonte universal de fallback), e sem isso rodava direto na
+            // THREAD PRINCIPAL -- isso é o "Supreme não está respondendo"
+            // (ANR) que aparecia na tela de Canais um pouco depois de abrir,
+            // exatamente o tempo de baixar+processar esse guia.
+            val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
+            }
             xmlTvCache[epgUrl] = parsed
             if (parsed.isNotEmpty()) {
                 epgUrlCache[cacheKey] = epgUrl

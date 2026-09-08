@@ -303,23 +303,34 @@ class HomeActivity : AppCompatActivity() {
                 // Vencimento: mostra o modal UMA VEZ por chave (nao repete
                 // o mesmo aviso toda hora).
                 val expiration = notif.expiration
-                if (expiration?.modalKey != null &&
-                    !com.meuapp.iptvplayer.util.AppConfigStore.hasShownExpirationModal(this@HomeActivity, expiration.modalKey)
+                if (!expiration?.modalKey.isNullOrBlank() &&
+                    (!expiration?.title.isNullOrBlank() || !expiration?.message.isNullOrBlank()) &&
+                    !com.meuapp.iptvplayer.util.AppConfigStore.hasShownExpirationModal(this@HomeActivity, expiration!!.modalKey!!)
                 ) {
                     androidx.appcompat.app.AlertDialog.Builder(this@HomeActivity)
                         .setTitle(expiration.title ?: "Aviso de vencimento")
                         .setMessage(expiration.message ?: "Sua assinatura está prestes a vencer.")
                         .setPositiveButton("Entendi", null)
                         .show()
-                    com.meuapp.iptvplayer.util.AppConfigStore.markExpirationModalShown(this@HomeActivity, expiration.modalKey)
+                    com.meuapp.iptvplayer.util.AppConfigStore.markExpirationModalShown(this@HomeActivity, expiration.modalKey!!)
                 }
 
                 // Avisos tecnicos ainda nao confirmados.
                 notif.notifications.filterNot { it.acknowledged }.forEach { alert ->
-                    if (alert.title != null || alert.message != null) {
+                    val alertId = alert.id
+                    val hasContent = !alert.title.isNullOrBlank() || !alert.message.isNullOrBlank()
+                    // Mostra só uma vez por ID -- se o servidor não
+                    // processar a confirmação de leitura (rota nova, pode
+                    // ainda não estar 100% implementada do lado do
+                    // painel), o mesmo aviso podia voltar "não confirmado"
+                    // a cada ciclo de 60s, mostrando de novo sem parar.
+                    if (hasContent && alertId != null &&
+                        !com.meuapp.iptvplayer.util.AppConfigStore.hasShownAlert(this@HomeActivity, alertId)
+                    ) {
                         Toast.makeText(this@HomeActivity, "${alert.title.orEmpty()} ${alert.message.orEmpty()}".trim(), Toast.LENGTH_LONG).show()
+                        com.meuapp.iptvplayer.util.AppConfigStore.markAlertShown(this@HomeActivity, alertId)
                     }
-                    alert.id?.let { id -> runCatching { renciaRepository.ackListNotification(session.mac, id) } }
+                    alertId?.let { id -> runCatching { renciaRepository.ackListNotification(session.mac, id) } }
                 }
 
                 // Lista mudou/precisa sincronizar (troca automatica de

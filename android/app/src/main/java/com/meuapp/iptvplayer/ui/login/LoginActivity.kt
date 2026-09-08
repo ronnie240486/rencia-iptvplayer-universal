@@ -67,12 +67,13 @@ class LoginActivity : AppCompatActivity() {
 
         startCrestPulse()
 
-        // Se essa é uma instalação/atualização nova do APK, limpa o cache
-        // da lista antiga -- tem que fazer isso ANTES de qualquer checagem
-        // de "já tem lista salva?" mais abaixo (por isso síncrono aqui:
-        // rodar em segundo plano criaria uma corrida com a ativação
-        // automática do onStart, que dispara logo em seguida).
-        com.meuapp.iptvplayer.util.InstallCacheGuard.clearCacheIfNewInstall(this)
+        // Não limpa mais o cache em instalação/atualização nova -- isso
+        // fazia toda instalação de um APK novo (inclusive testar builds
+        // diferentes) contar como "primeira vez", carregando a lista
+        // inteira de novo toda hora. Outros apps não fazem isso: a lista
+        // salva continua valendo mesmo depois de reinstalar, e só recarrega
+        // de verdade quando o usuário pedir (botão "Atualizar conteúdo"
+        // em Ajustes) ou quando o painel realmente mudar algo.
 
         val session = SessionStore.getSavedSession(this)
         val savedMac = session?.mac?.takeIf { it.isNotBlank() }

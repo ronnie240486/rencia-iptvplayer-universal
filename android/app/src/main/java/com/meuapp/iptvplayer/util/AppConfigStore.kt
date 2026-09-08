@@ -83,4 +83,24 @@ object AppConfigStore {
             .putString(KEY_LAST_EXPIRATION_MODAL_KEY, modalKey)
             .apply()
     }
+
+    /** Guarda um CONJUNTO de IDs já mostrados (diferente do vencimento
+     * acima, que só guarda o último) -- usado pra avisos técnicos, onde
+     * podem existir vários diferentes ao mesmo tempo, e mostrar cada um
+     * só uma vez, mesmo que o servidor não confirme a leitura de volta. */
+    private const val KEY_SHOWN_ALERT_IDS = "shown_alert_ids"
+
+    fun hasShownAlert(context: Context, alertId: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getStringSet(KEY_SHOWN_ALERT_IDS, emptySet())?.contains(alertId) == true
+    }
+
+    fun markAlertShown(context: Context, alertId: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_SHOWN_ALERT_IDS, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(alertId)
+        // Limita a 200 IDs guardados, pra não crescer pra sempre.
+        val trimmed = if (current.size > 200) current.toList().takeLast(200).toMutableSet() else current
+        prefs.edit().putStringSet(KEY_SHOWN_ALERT_IDS, trimmed).apply()
+    }
 }

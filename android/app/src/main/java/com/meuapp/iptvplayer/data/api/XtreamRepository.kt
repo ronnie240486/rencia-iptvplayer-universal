@@ -65,6 +65,12 @@ class XtreamRepository(context: Context? = null) {
         // o usuário clica (em vez de só uma vez) era o que deixava trocar
         // de categoria lento/travado.
         private val liveStreamsByCategoryCache = mutableMapOf<String, Map<String, List<LiveStream>>>() // cacheKey -> categoryId -> canais
+        // Mesma ideia acima, só que pra Filmes e Séries -- classificar
+        // conteúdo (é filme? série? ao vivo?) é caro (regex por item), e
+        // sem isso as telas de Filmes/Séries tinham o mesmo travamento ao
+        // trocar de categoria que Canais tinha antes de corrigir.
+        private val vodByCategoryCache = mutableMapOf<String, Map<String, List<VodStream>>>()
+        private val seriesByCategoryCache = mutableMapOf<String, Map<String, List<SeriesItem>>>()
     }
 
     // Muitos paineis Xtream (PHP/Apache simples) fecham a conexao de um
@@ -466,7 +472,24 @@ class XtreamRepository(context: Context? = null) {
      * salva, ela é tentada PRIMEIRO -- só cai pra API se a M3U falhar. */
     suspend fun getLiveCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
-            val m3uResult = runCatching { M3uParser.toLiveCategories(fetchM3uChannels(session)) }
+            val m3uResult = runCatching {
+                // Reaproveita o MESMO cache de "canais ao vivo por
+                // categoria" usado em getLiveStreams (calculado uma vez só
+                // por sessão) -- sem isso, abrir a tela de Canais
+                // reclassificava a lista INTEIRA de novo (mesma
+                // verificação por regex, cara, pra cada canal) toda vez,
+                // mesmo já tendo feito isso segundos antes.
+                val cacheKey = cacheKeyFor(session)
+                var byCategory = liveStreamsByCategoryCache[cacheKey]
+                if (byCategory == null) {
+                    val channels = fetchM3uChannels(session)
+                    val liveOnly = channels.filter { M3uParser.contentKindPublic(it) == "live" }
+                    byCategory = liveOnly.groupBy { it.groupTitle }
+                        .mapValues { (categoryName, group) -> M3uParser.toLiveStreams(group, categoryName) }
+                    liveStreamsByCategoryCache[cacheKey] = byCategory
+                }
+                byCategory.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
+            }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
@@ -534,7 +557,10 @@ class XtreamRepository(context: Context? = null) {
 
     suspend fun getVodCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
-            val m3uResult = runCatching { M3uParser.toVodCategories(fetchM3uChannels(session)) }
+            val m3uResult = runCatching {
+                vodStreamsByCategory(session).keys.sortedBy { it.lowercase() }
+                    .map { Category(categoryId = it, categoryName = it) }
+            }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
@@ -545,12 +571,27 @@ class XtreamRepository(context: Context? = null) {
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
+    /** Calcula "filmes já separados por categoria" só UMA vez por sessão
+     * (fica em cache) -- classificar cada canal (é filme? série? ao vivo?)
+     * envolve regex por canal, caro se refeito toda vez que troca de
+     * categoria. */
+    private suspend fun vodStreamsByCategory(session: Session): Map<String, List<VodStream>> {
+        val cacheKey = cacheKeyFor(session)
+        vodByCategoryCache[cacheKey]?.let { return it }
+        val channels = fetchM3uChannels(session)
+        val vodOnly = channels.filter { M3uParser.contentKindPublic(it) == "vod" }
+        val byCategory = vodOnly.groupBy { it.groupTitle }
+            .mapValues { (categoryName, group) -> M3uParser.toVodStreams(group, categoryName) }
+        vodByCategoryCache[cacheKey] = byCategory
+        return byCategory
+    }
+
     suspend fun getVodStreams(session: Session, categoryId: String?): Result<List<VodStream>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                val channels = fetchM3uChannels(session)
-                val targetCategory = categoryId ?: M3uParser.toVodCategories(channels).firstOrNull()?.categoryId
-                if (targetCategory == null) emptyList() else M3uParser.toVodStreams(channels, targetCategory)
+                val byCategory = vodStreamsByCategory(session)
+                val targetCategory = categoryId ?: byCategory.keys.firstOrNull()
+                if (targetCategory == null) emptyList() else byCategory[targetCategory].orEmpty()
             }
             m3uResult.getOrNull()?.let { return@runCatching it }
         }
@@ -571,7 +612,10 @@ class XtreamRepository(context: Context? = null) {
 
     suspend fun getSeriesCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
-            val m3uResult = runCatching { M3uParser.toSeriesCategories(fetchM3uChannels(session)) }
+            val m3uResult = runCatching {
+                seriesByCategory(session).keys.sortedBy { it.lowercase() }
+                    .map { Category(categoryId = it, categoryName = it) }
+            }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
@@ -582,18 +626,27 @@ class XtreamRepository(context: Context? = null) {
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
-    /** Séries vindas de M3U são agrupadas pelo nome (removendo o SxxExx do
-     * final) -- é o mesmo jeito que outros apps de IPTV leem séries numa
-     * playlist M3U simples, já que esse formato não separa formalmente
-     * série / temporada / episódio como a API Xtream faz. */
+    /** Calcula "séries já separadas por categoria" só UMA vez por sessão
+     * (fica em cache) -- mesma ideia de Canais/Filmes: classificar e
+     * agrupar por episódio (SxxExx) é caro pra refazer a cada clique numa
+     * categoria diferente. */
+    private suspend fun seriesByCategory(session: Session): Map<String, List<SeriesItem>> {
+        val cacheKey = cacheKeyFor(session)
+        seriesByCategoryCache[cacheKey]?.let { return it }
+        val channels = fetchM3uChannels(session)
+        val categories = M3uParser.toSeriesCategories(channels).map { it.categoryId }
+        val byCategory = categories.associateWith { categoryId ->
+            M3uParser.toSeriesShows(channels, categoryId).also { shows ->
+                shows.forEach { m3uSeriesLookup[it.seriesId] = categoryId to it.name }
+            }
+        }
+        seriesByCategoryCache[cacheKey] = byCategory
+        return byCategory
+    }
+
     suspend fun getSeries(session: Session, categoryId: String?): Result<List<SeriesItem>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank() && categoryId != null) {
-            val m3uResult = runCatching {
-                val channels = fetchM3uChannels(session)
-                val shows = M3uParser.toSeriesShows(channels, categoryId)
-                shows.forEach { m3uSeriesLookup[it.seriesId] = categoryId to it.name }
-                shows
-            }
+            val m3uResult = runCatching { seriesByCategory(session)[categoryId].orEmpty() }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
         val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
@@ -603,6 +656,11 @@ class XtreamRepository(context: Context? = null) {
         val type = object : TypeToken<List<SeriesItem>>() {}.type
         parseJsonList(fetchBody(url), type)
     }
+
+    /** Séries vindas de M3U são agrupadas pelo nome (removendo o SxxExx do
+     * final) -- é o mesmo jeito que outros apps de IPTV leem séries numa
+     * playlist M3U simples, já que esse formato não separa formalmente
+     * série / temporada / episódio como a API Xtream faz. */
 
     suspend fun getSeriesInfo(session: Session, seriesId: Int): Result<SeriesInfoResponse> = runCatching {
         m3uSeriesLookup[seriesId]?.let { (categoryName, showName) ->

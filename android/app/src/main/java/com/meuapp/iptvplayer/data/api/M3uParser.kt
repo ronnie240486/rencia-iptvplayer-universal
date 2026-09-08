@@ -357,6 +357,18 @@ object M3uParser {
      * > episódio como a API Xtream. */
     fun toSeriesShows(channels: List<ParsedChannel>, categoryName: String): List<SeriesItem> {
         val seriesEntries = channels.filter { it.groupTitle == categoryName && contentKind(it) == "series" }
+        return groupIntoSeriesShows(seriesEntries, categoryName)
+    }
+
+    /** Mesma lógica de toSeriesShows, mas recebe a sublista de canais JÁ
+     * FILTRADA (por índices já classificados, por exemplo) -- evita
+     * varrer e reclassificar (regex por canal) a lista inteira de novo
+     * pra CADA categoria de série, que era caro quando tem muitas
+     * categorias diferentes. */
+    fun toSeriesShowsFromSubset(preFiltered: List<ParsedChannel>, categoryName: String): List<SeriesItem> =
+        groupIntoSeriesShows(preFiltered, categoryName)
+
+    private fun groupIntoSeriesShows(seriesEntries: List<ParsedChannel>, categoryName: String): List<SeriesItem> {
         val grouped = seriesEntries.groupBy { episodeInfo(it.name)?.showName ?: it.name.trim() }
         return grouped.entries
             .sortedBy { it.key.lowercase() }

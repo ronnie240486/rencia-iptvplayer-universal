@@ -202,8 +202,8 @@ class XtreamRepository(context: Context? = null) {
         val vod = vodIndices.mapValues { (categoryName, indices) ->
             M3uParser.toVodStreams(indices.map { channels[it] }, categoryName)
         }
-        val series = seriesIndices.mapValues { (categoryName, _) ->
-            M3uParser.toSeriesShows(channels, categoryName)
+        val series = seriesIndices.mapValues { (categoryName, indices) ->
+            M3uParser.toSeriesShowsFromSubset(indices.map { channels[it] }, categoryName)
         }
         return Triple(live, vod, series)
     }

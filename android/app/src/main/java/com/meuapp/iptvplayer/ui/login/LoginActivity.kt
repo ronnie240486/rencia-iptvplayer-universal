@@ -144,11 +144,19 @@ class LoginActivity : AppCompatActivity() {
         val motivo = when {
             session == null -> "sessão salva é nula"
             session.mac.isBlank() -> "MAC salvo está vazio"
-            !xtreamRepository.hasCachedPlaylist(session) -> "hasCachedPlaylist retornou falso (playlistUrl=${session.playlistUrl?.take(40)}, mac=${session.mac})"
+            !xtreamRepository.hasCachedPlaylist(session) -> {
+                val lastWrite = getSharedPreferences("supremus_cache_diag", MODE_PRIVATE).getString("last_write_result", "nenhuma gravação registrada ainda")
+                "hasCachedPlaylist falso. Última gravação: $lastWrite"
+            }
             else -> "motivo desconhecido"
         }
-        android.widget.Toast.makeText(this, "DIAGNÓSTICO: $motivo", android.widget.Toast.LENGTH_LONG).show()
-        activateDevice(silent = true)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Diagnóstico (temporário)")
+            .setMessage(motivo)
+            .setPositiveButton("OK") { _, _ -> activateDevice(silent = true) }
+            .setCancelable(false)
+            .show()
+        return
     }
 
     override fun onStop() {

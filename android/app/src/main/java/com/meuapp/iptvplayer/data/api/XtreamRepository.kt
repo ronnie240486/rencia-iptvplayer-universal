@@ -202,8 +202,24 @@ class XtreamRepository(context: Context? = null) {
     }
 
     private fun writeParsedCache(cacheKey: String, data: CachedPlaylistData) {
-        val file = m3uCacheFile(cacheKey) ?: return
-        runCatching { writeCacheFileSafely(file, gson.toJson(data)) }
+        val diagPrefs = appContext?.getSharedPreferences("supremus_cache_diag", Context.MODE_PRIVATE)
+        val file = m3uCacheFile(cacheKey)
+        if (file == null) {
+            diagPrefs?.edit()?.putString("last_write_result", "m3uCacheFile retornou null (appContext ausente?)")?.apply()
+            return
+        }
+        val result = runCatching { writeCacheFileSafely(file, gson.toJson(data)) }
+        val message = if (result.isFailure) {
+            "Falha ao gravar cache: ${result.exceptionOrNull()?.javaClass?.simpleName}: ${result.exceptionOrNull()?.message}"
+        } else if (!file.exists()) {
+            "writeCacheFileSafely não deu erro, mas o arquivo não existe depois (path=${file.absolutePath})"
+        } else {
+            "OK: gravado em ${file.absolutePath} (${file.length()} bytes)"
+        }
+        // Salva o resultado no DISCO (não só na memória) -- assim
+        // sobrevive até a próxima abertura do app, quando dá pra checar o
+        // que aconteceu na gravação anterior.
+        diagPrefs?.edit()?.putString("last_write_result", message)?.apply()
     }
 
     private fun m3uCacheFile(cacheKey: String): File? {

@@ -233,23 +233,45 @@ class XtreamRepository(context: Context? = null) {
         return Triple(live, vod, series)
     }
 
+    // ---- Formato de cache em disco: texto simples, feito à mão -- SEM
+    // Gson/JSON pra esse arquivo especificamente. Um teste real (painel
+    // com 270.501 canais, arquivo de 68MB) mostrou ~17s só pra LER os
+    // bytes do arquivo + ~5,5s pra o Gson (reflection) converter isso em
+    // objetos -- toda vez que o app é reaberto do zero. JSON genérico com
+    // Gson é conveniente, mas caro demais pra uma lista desse tamanho.
+    // Um formato de texto simples (uma linha por canal, campos separados
+    // por um caractere reservado) é MUITO mais rápido de ler/escrever
+    // porque não tem reflection nem a árvore intermediária de JsonElement
+    // que o Gson monta antes de converter pra objeto Kotlin.
+    private val CACHE_FORMAT_VERSION = "SUPREMUS_CACHE_V2"
+    private val FIELD_SEP = '\u0001'
+    private val NULL_MARKER = "\u0000"
+
+    private fun sanitizeField(value: String?): String {
+        if (value == null) return NULL_MARKER
+        // Tira qualquer ocorrência (bem rara) dos separadores do formato
+        // de dentro do próprio valor -- sem isso, um nome de canal com
+        // esse caractere quebraria a leitura da linha inteira. Só afeta
+        // exibição nesse caso raríssimo, não afeta o link do stream.
+        return value.replace(FIELD_SEP, ' ').replace('\n', ' ').replace('\r', ' ')
+    }
+
+    private fun readField(value: String): String? = if (value == NULL_MARKER) null else value
+
     /** Lê o cache já PROCESSADO (não o texto M3U bruto) -- ler do disco e
      * so DESSERIALIZAR é rápido; o que demorava de verdade (até 40s numa
      * lista grande) era reprocessar o texto inteiro com regex de novo TODA
      * VEZ que abria o app, mesmo já tendo processado tudo antes. Agora só
      * processa (parse) uma vez: no primeiro download. Depois disso, só
      * lê o resultado já pronto. */
-    private fun readParsedCache(cacheKey: String): CachedPlaylistData? {
-        val file = m3uCacheFile(cacheKey)?.takeIf { it.exists() } ?: return null
-        val json = runCatching { file.readText() }.getOrNull() ?: return null
-        return runCatching { gson.fromJson(json, CachedPlaylistData::class.java) }.getOrNull()
-    }
+    private fun readParsedCache(cacheKey: String): CachedPlaylistData? =
+        m3uCacheFile(cacheKey)?.takeIf { it.exists() }?.let { readCachePlain(it) }
 
     /** DIAGNÓSTICO TEMPORÁRIO: resultado com os tempos de CADA etapa
-     * separados -- ler bytes do disco é uma coisa (I/O puro), converter
-     * o texto em objetos com Gson é outra (CPU, reflection) -- sem medir
-     * separado, não dá pra saber qual das duas é a real vilã quando o
-     * total demora mais do que deveria pra uma lista pequena. */
+     * separados -- ler as linhas do disco é uma coisa (I/O), montar os
+     * objetos a partir delas é outra (CPU) -- sem medir separado, não dá
+     * pra saber qual das duas é a real vilã quando o total demora mais do
+     * que deveria. */
     private data class TimedCacheRead(
         val data: CachedPlaylistData?,
         val fileBytes: Long,
@@ -261,12 +283,61 @@ class XtreamRepository(context: Context? = null) {
         val file = m3uCacheFile(cacheKey)?.takeIf { it.exists() }
             ?: return TimedCacheRead(null, -1L, 0L, 0L)
         val r0 = System.nanoTime()
-        val json = runCatching { file.readText() }.getOrNull()
+        val lines = runCatching { file.bufferedReader().use { it.readLines() } }.getOrNull()
         val r1 = System.nanoTime()
-        if (json == null) return TimedCacheRead(null, file.length(), (r1 - r0) / 1_000_000, 0L)
-        val data = runCatching { gson.fromJson(json, CachedPlaylistData::class.java) }.getOrNull()
+        if (lines == null) return TimedCacheRead(null, file.length(), (r1 - r0) / 1_000_000, 0L)
+        val data = runCatching { parseCacheLines(lines) }.getOrNull()
         val r2 = System.nanoTime()
         return TimedCacheRead(data, file.length(), (r1 - r0) / 1_000_000, (r2 - r1) / 1_000_000)
+    }
+
+    private fun readCachePlain(file: File): CachedPlaylistData? {
+        val lines = runCatching { file.bufferedReader().use { it.readLines() } }.getOrNull() ?: return null
+        return runCatching { parseCacheLines(lines) }.getOrNull()
+    }
+
+    /** Converte as linhas já lidas do arquivo de cache em CachedPlaylistData
+     * -- puro processamento de texto (split por caractere, não regex),
+     * sem reflection nenhuma. */
+    private fun parseCacheLines(lines: List<String>): CachedPlaylistData? {
+        if (lines.isEmpty() || lines[0] != CACHE_FORMAT_VERSION) return null
+        var i = 1
+        val epgUrl = readField(lines[i]); i++
+        val channelCount = lines[i].toInt(); i++
+        val channels = ArrayList<M3uParser.ParsedChannel>(channelCount)
+        repeat(channelCount) {
+            val parts = lines[i].split(FIELD_SEP)
+            i++
+            if (parts.size == 5) {
+                channels.add(
+                    M3uParser.ParsedChannel(
+                        groupTitle = readField(parts[0]) ?: "Geral",
+                        name = readField(parts[1]) ?: "",
+                        logoUrl = readField(parts[2]),
+                        streamUrl = readField(parts[3]) ?: "",
+                        tvgId = readField(parts[4])
+                    )
+                )
+            }
+        }
+        fun readIndexMap(): Map<String, List<Int>> {
+            val count = lines[i].toInt(); i++
+            val map = LinkedHashMap<String, List<Int>>(count)
+            repeat(count) {
+                val parts = lines[i].split(FIELD_SEP)
+                i++
+                if (parts.size == 2) {
+                    val categoryName = readField(parts[0]) ?: return@repeat
+                    val indices = if (parts[1].isEmpty()) emptyList() else parts[1].split(',').map { it.toInt() }
+                    map[categoryName] = indices
+                }
+            }
+            return map
+        }
+        val liveIdx = readIndexMap()
+        val vodIdx = readIndexMap()
+        val seriesIdx = readIndexMap()
+        return CachedPlaylistData(channels, epgUrl, liveIdx, vodIdx, seriesIdx)
     }
 
     private fun writeParsedCache(cacheKey: String, data: CachedPlaylistData) {
@@ -276,11 +347,11 @@ class XtreamRepository(context: Context? = null) {
             diagPrefs?.edit()?.putString("last_write_result", "m3uCacheFile retornou null (appContext ausente?)")?.apply()
             return
         }
-        val result = runCatching { writeCacheFileSafely(file, gson.toJson(data)) }
+        val result = runCatching { writeCachePlain(file, data) }
         val message = if (result.isFailure) {
             "Falha ao gravar cache: ${result.exceptionOrNull()?.javaClass?.simpleName}: ${result.exceptionOrNull()?.message}"
         } else if (!file.exists()) {
-            "writeCacheFileSafely não deu erro, mas o arquivo não existe depois (path=${file.absolutePath})"
+            "writeCachePlain não deu erro, mas o arquivo não existe depois (path=${file.absolutePath})"
         } else {
             "OK: gravado em ${file.absolutePath} (${file.length()} bytes)"
         }
@@ -309,10 +380,44 @@ class XtreamRepository(context: Context? = null) {
      * primeiro e só troca pelo definitivo quando termina de escrever tudo.
      * Sem isso, um arquivo cortado pela metade virava um cache "válido mas
      * vazio/quebrado" que nunca mais carregava nada até limpar os dados
-     * do app manualmente. */
-    private fun writeCacheFileSafely(file: File, content: String) {
+     * do app manualmente.
+     *
+     * Escreve LINHA POR LINHA num BufferedWriter (não monta uma string
+     * gigante inteira na memória antes de escrever, como gson.toJson
+     * fazia) -- numa lista de 270 mil canais isso evita alocar dezenas de
+     * MB extras só pra montar o texto antes de gravar. */
+    private fun writeCachePlain(file: File, data: CachedPlaylistData) {
         val tempFile = File(file.parentFile, "${file.name}.tmp")
-        tempFile.writeText(content)
+        tempFile.bufferedWriter().use { writer ->
+            writer.write(CACHE_FORMAT_VERSION); writer.newLine()
+            writer.write(sanitizeField(data.epgUrl)); writer.newLine()
+            writer.write(data.channels.size.toString()); writer.newLine()
+            for (channel in data.channels) {
+                writer.write(sanitizeField(channel.groupTitle))
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(channel.name))
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(channel.logoUrl))
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(channel.streamUrl))
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(channel.tvgId))
+                writer.newLine()
+            }
+            fun writeIndexMap(map: Map<String, List<Int>>?) {
+                val safe = map.orEmpty()
+                writer.write(safe.size.toString()); writer.newLine()
+                for ((categoryName, indices) in safe) {
+                    writer.write(sanitizeField(categoryName))
+                    writer.write(FIELD_SEP.toString())
+                    writer.write(indices.joinToString(","))
+                    writer.newLine()
+                }
+            }
+            writeIndexMap(data.liveIndicesByCategory)
+            writeIndexMap(data.vodIndicesByCategory)
+            writeIndexMap(data.seriesIndicesByCategory)
+        }
         tempFile.renameTo(file)
     }
 
@@ -536,7 +641,7 @@ class XtreamRepository(context: Context? = null) {
                     }
                 }
                 val t2 = System.nanoTime()
-                val timing = "HIT | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | gson=${timedRead.parseMs}ms | montagem=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
+                val timing = "V2 | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | parse=${timedRead.parseMs}ms | montagem=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
                 lastLoadTiming = timing
                 diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
                 return@withLock cached.channels

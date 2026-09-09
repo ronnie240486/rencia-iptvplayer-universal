@@ -69,6 +69,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <activity
+            android:name=".ui.vod.VodDetailActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
             android:name=".ui.series.SeriesActivity"
             android:exported="false"
             android:screenOrientation="landscape"

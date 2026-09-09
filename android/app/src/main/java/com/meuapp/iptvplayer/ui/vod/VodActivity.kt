@@ -6,7 +6,6 @@ import android.text.InputType
 import android.view.View
 import android.widget.EditText
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -19,7 +18,6 @@ import com.meuapp.iptvplayer.data.model.VodStream
 import com.meuapp.iptvplayer.databinding.ActivityVodBinding
 import com.meuapp.iptvplayer.ui.common.CategorySidebarAdapter
 import com.meuapp.iptvplayer.ui.login.LoginActivity
-import com.meuapp.iptvplayer.ui.player.PlayerActivity
 import com.meuapp.iptvplayer.util.AppearancePrefs
 import com.meuapp.iptvplayer.util.SessionStore
 import kotlinx.coroutines.launch
@@ -30,10 +28,10 @@ class VodActivity : AppCompatActivity() {
     private lateinit var binding: ActivityVodBinding
     private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
-    private val tmdbRepository = com.meuapp.iptvplayer.data.api.TmdbRepository()
     private lateinit var categoryAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: VodAdapter
     private var selectedPosterUrl: String? = null
+    private var currentCategoryName: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,7 +57,7 @@ class VodActivity : AppCompatActivity() {
         ) { category -> onCategorySelected(category) }
 
         gridAdapter = VodAdapter(
-            onClick = { movie -> confirmAndOpen(movie) },
+            onClick = { movie -> openDetail(movie) },
             onFocused = { movie ->
                 selectedPosterUrl = movie.streamIcon
                 binding.backdropView.setPoster(movie.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
@@ -113,6 +111,7 @@ class VodActivity : AppCompatActivity() {
 
     private fun loadMovies(categoryId: String, categoryName: String) {
         val session = SessionStore.getSavedSession(this) ?: return
+        currentCategoryName = categoryName
         binding.toolbar.tvSubtitle.text = "$categoryName · carregando filmes…"
         setLoading(true)
         lifecycleScope.launch {
@@ -136,47 +135,18 @@ class VodActivity : AppCompatActivity() {
         }
     }
 
-    /** Listas M3U não trazem sinopse nenhuma (só nome/categoria/logo/link)
-     * -- busca no TMDB pelo NOME do filme antes de tocar, pra pessoa saber
-     * do que se trata. Se não achar nada no TMDB, toca direto sem
-     * incomodar com uma caixa vazia (mesmo comportamento de antes). */
-    private fun confirmAndOpen(movie: VodStream) {
-        lifecycleScope.launch {
-            val overview = runCatching { tmdbRepository.findMovieOverview(movie.name) }.getOrNull()
-            if (overview.isNullOrBlank()) {
-                openPlayer(movie)
-            } else {
-                AlertDialog.Builder(this@VodActivity)
-                    .setTitle(movie.name)
-                    .setMessage(overview)
-                    .setPositiveButton("Assistir") { _, _ -> openPlayer(movie) }
-                    .setNegativeButton("Cancelar", null)
-                    .show()
-            }
-        }
-    }
-
-    private fun openPlayer(movie: VodStream) {
-        val session = SessionStore.getSavedSession(this) ?: return
-        val streamUrl = movie.directStreamUrl ?: repository.buildVodStreamUrl(session, movie.streamId, movie.containerExtension)
-        com.meuapp.iptvplayer.util.WatchHistoryStore.record(
-            this,
-            com.meuapp.iptvplayer.util.WatchHistoryItem(
-                kind = "vod",
-                title = movie.name,
-                subtitle = null,
-                posterUrl = movie.streamIcon,
-                streamUrl = streamUrl,
-                watchedAt = System.currentTimeMillis()
-            )
-        )
-        val intent = Intent(this, PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_STREAM_URL, streamUrl)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, movie.name)
-            putExtra(PlayerActivity.EXTRA_KIND, "vod")
-            putExtra(PlayerActivity.EXTRA_POSTER_URL, movie.streamIcon)
-        }
-        startActivity(intent)
+    /** Abre a tela de detalhes do filme (pôster grande, sinopse, botão
+     * Assistir) -- mesma experiência da tela de detalhes de série. */
+    private fun openDetail(movie: VodStream) {
+        startActivity(Intent(this, VodDetailActivity::class.java).apply {
+            putExtra(VodDetailActivity.EXTRA_NAME, movie.name)
+            putExtra(VodDetailActivity.EXTRA_POSTER, movie.streamIcon)
+            putExtra(VodDetailActivity.EXTRA_CATEGORY_NAME, currentCategoryName)
+            putExtra(VodDetailActivity.EXTRA_STREAM_ID, movie.streamId)
+            putExtra(VodDetailActivity.EXTRA_CONTAINER_EXTENSION, movie.containerExtension)
+            putExtra(VodDetailActivity.EXTRA_DIRECT_STREAM_URL, movie.directStreamUrl)
+            putExtra(VodDetailActivity.EXTRA_RATING, movie.rating)
+        })
     }
 
     override fun onResume() {

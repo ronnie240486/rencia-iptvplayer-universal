@@ -47,11 +47,37 @@ class PlayerActivity : AppCompatActivity() {
     private var usingSharedPlayer = false
     private var playerListener: Player.Listener? = null
 
+    private var favoriteButtonEnabled = true
+    private var nowPlayingLoaded = false
+    // Controles do player (play/pausa, barra) já escondem/mostram sozinhos
+    // ao tocar na tela -- os overlays próprios (nome do canal, favoritar,
+    // "agora") seguem esse MESMO estado, pra não ficar informação
+    // sobrando na tela quando o usuário só quer ver o vídeo limpo.
+    private var controlsVisible = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         hideSystemBars()
+
+        // Escondidos por padrão -- só aparecem quando o usuário toca na
+        // tela (ver setControllerVisibilityListener abaixo).
+        binding.tvChannelName.visibility = View.GONE
+        binding.tvNowPlaying.visibility = View.GONE
+        binding.btnFavorite.visibility = View.GONE
+        binding.playerView.setControllerVisibilityListener(
+            androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility ->
+                controlsVisible = visibility == View.VISIBLE
+                binding.tvChannelName.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+                if (favoriteButtonEnabled) {
+                    binding.btnFavorite.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+                }
+                if (nowPlayingLoaded) {
+                    binding.tvNowPlaying.visibility = if (controlsVisible) View.VISIBLE else View.GONE
+                }
+            }
+        )
 
         streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
         channelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
@@ -76,9 +102,12 @@ class PlayerActivity : AppCompatActivity() {
     private fun setupFavoriteButton() {
         val kind = intent.getStringExtra(EXTRA_KIND)
         if (kind.isNullOrBlank()) {
+            favoriteButtonEnabled = false
             binding.btnFavorite.visibility = View.GONE
             return
         }
+        favoriteButtonEnabled = true
+        if (controlsVisible) binding.btnFavorite.visibility = View.VISIBLE
         isFavorite = FavoritesStore.isFavorite(this, kind, streamUrl)
         updateFavoriteIcon()
         binding.btnFavorite.setOnClickListener {
@@ -122,7 +151,11 @@ class PlayerActivity : AppCompatActivity() {
             }
             if (!title.isNullOrBlank()) {
                 binding.tvNowPlaying.text = "Agora: $title"
-                binding.tvNowPlaying.visibility = View.VISIBLE
+                nowPlayingLoaded = true
+                // Só mostra já se os controles JÁ estiverem visíveis nesse
+                // momento -- senão fica escondido até o próximo toque na
+                // tela, junto com o resto.
+                if (controlsVisible) binding.tvNowPlaying.visibility = View.VISIBLE
             }
         }
     }

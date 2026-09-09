@@ -288,6 +288,19 @@ class PlayerActivity : AppCompatActivity() {
             }.getOrNull()?.getOrNull()?.let { result ->
                 if (result.switchApplied) {
                     Toast.makeText(this@PlayerActivity, result.message ?: "Lista alternativa ativada pelo painel", Toast.LENGTH_LONG).show()
+                    // O painel trocou de lista NELE MESMO -- pra esse
+                    // aparelho realmente passar a usar a lista nova (e
+                    // não continuar servindo a antiga do cache), precisa
+                    // buscar uma sessão atualizada E apagar o cache
+                    // antigo. A chave do cache usa o MAC (que não muda
+                    // numa troca de lista), então sem apagar explicitamente
+                    // o app continuaria mostrando a lista VELHA guardada,
+                    // mesmo com o painel já tendo trocado do lado dele.
+                    val renciaRepository = com.meuapp.iptvplayer.data.api.RenciaRepository()
+                    renciaRepository.authenticateByMac(session.mac).getOrNull()?.let { updatedSession ->
+                        com.meuapp.iptvplayer.data.api.XtreamRepository(this@PlayerActivity).clearM3uCache(session)
+                        SessionStore.saveSession(this@PlayerActivity, updatedSession)
+                    }
                 }
             }
         }

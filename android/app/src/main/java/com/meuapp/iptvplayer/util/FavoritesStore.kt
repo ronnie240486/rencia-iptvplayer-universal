@@ -69,6 +69,7 @@ object FavoritesStore {
         put("seriesId", item.seriesId ?: -1)
         put("seriesCover", item.seriesCover ?: "")
         put("addedAt", item.addedAt)
+        put("epgChannelId", item.epgChannelId ?: "")
     }
 
     private fun fromJson(obj: JSONObject?): FavoriteItem? {
@@ -81,7 +82,8 @@ object FavoritesStore {
                 streamUrl = obj.getString("streamUrl"),
                 seriesId = obj.optInt("seriesId", -1).takeIf { it != -1 },
                 seriesCover = obj.optString("seriesCover").ifBlank { null },
-                addedAt = obj.optLong("addedAt")
+                addedAt = obj.optLong("addedAt"),
+                epgChannelId = obj.optString("epgChannelId").ifBlank { null }
             )
         }.getOrNull()
     }

@@ -321,6 +321,22 @@ class ChannelListActivity : AppCompatActivity() {
             }
         }
         val streamUrl = channel.directStreamUrl ?: repository.buildLiveStreamUrl(session, channel.streamId)
+        // Grava em "Recém Assistidos" TODA vez que um canal é selecionado
+        // (mini player ou tela cheia) -- antes só gravava ao abrir tela
+        // cheia, então quem assistia direto no mini player (sem apertar
+        // "Tela Cheia") nunca aparecia em Recém Assistidos.
+        com.meuapp.iptvplayer.util.WatchHistoryStore.record(
+            this,
+            com.meuapp.iptvplayer.util.WatchHistoryItem(
+                kind = "live",
+                title = channel.name,
+                subtitle = null,
+                posterUrl = channel.streamIcon,
+                streamUrl = streamUrl,
+                watchedAt = System.currentTimeMillis(),
+                epgChannelId = channel.epgChannelId
+            )
+        )
         // Se já é esse mesmo canal tocando (ex: voltou da tela cheia),
         // playUrl não faz nada -- continua exatamente de onde estava, sem
         // reiniciar. Só troca de verdade se for um canal diferente.

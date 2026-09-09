@@ -58,6 +58,7 @@ object WatchHistoryStore {
         put("posterUrl", item.posterUrl ?: "")
         put("streamUrl", item.streamUrl)
         put("watchedAt", item.watchedAt)
+        put("epgChannelId", item.epgChannelId ?: "")
     }
 
     private fun fromJson(obj: JSONObject?): WatchHistoryItem? {
@@ -69,7 +70,8 @@ object WatchHistoryStore {
                 subtitle = obj.optString("subtitle").ifBlank { null },
                 posterUrl = obj.optString("posterUrl").ifBlank { null },
                 streamUrl = obj.getString("streamUrl"),
-                watchedAt = obj.optLong("watchedAt")
+                watchedAt = obj.optLong("watchedAt"),
+                epgChannelId = obj.optString("epgChannelId").ifBlank { null }
             )
         }.getOrNull()
     }

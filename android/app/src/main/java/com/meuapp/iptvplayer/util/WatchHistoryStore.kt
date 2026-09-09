@@ -12,7 +12,10 @@ data class WatchHistoryItem(
     val subtitle: String?, // ex: nome do canal pro episódio, ou vazio
     val posterUrl: String?,
     val streamUrl: String,
-    val watchedAt: Long
+    val watchedAt: Long,
+    // Só preenchido pra canais ao vivo -- sem isso, "Recém Assistidos"
+    // não conseguia buscar a programação (EPG) desse canal depois.
+    val epgChannelId: String? = null
 )
 
 /** Guarda os últimos itens assistidos (SharedPreferences, formato JSON

@@ -202,8 +202,12 @@ class ChannelListActivity : AppCompatActivity() {
                     // Favoritos/Histórico salvos localmente (não vêm do
                     // provedor) -- igual outros apps de IPTV já fazem.
                     val allCategories = pinnedCategories() + categories
-                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(allCategories))
-                    loadedCategories = allCategories
+                    // Por cima disso, aplica a ordem que o usuário
+                    // arrastou em Configurações > Posições das categorias,
+                    // se ele tiver mexido em alguma.
+                    val finalCategories = com.meuapp.iptvplayer.util.CategoryOrderStore.applyLiveOrder(this@ChannelListActivity, allCategories)
+                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(finalCategories))
+                    loadedCategories = finalCategories
                     if (categories.isEmpty()) {
                         showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
                     }
@@ -282,12 +286,12 @@ class ChannelListActivity : AppCompatActivity() {
      * montar URL nenhuma a partir de streamId. */
     private fun com.meuapp.iptvplayer.util.WatchHistoryItem.toLiveStream() = LiveStream(
         num = 0, name = title, streamId = 0, streamIcon = posterUrl,
-        categoryId = null, epgChannelId = null, directStreamUrl = streamUrl
+        categoryId = null, epgChannelId = epgChannelId, directStreamUrl = streamUrl
     )
 
     private fun com.meuapp.iptvplayer.util.FavoriteItem.toLiveStream() = LiveStream(
         num = 0, name = title, streamId = 0, streamIcon = posterUrl,
-        categoryId = null, epgChannelId = null, directStreamUrl = streamUrl
+        categoryId = null, epgChannelId = epgChannelId, directStreamUrl = streamUrl
     )
 
     private fun displayChannels(channels: List<LiveStream>, categoryName: String) {
@@ -463,7 +467,8 @@ class ChannelListActivity : AppCompatActivity() {
                 subtitle = null,
                 posterUrl = channel.streamIcon,
                 streamUrl = streamUrl,
-                watchedAt = System.currentTimeMillis()
+                watchedAt = System.currentTimeMillis(),
+                epgChannelId = channel.epgChannelId
             )
         )
         lifecycleScope.launch {

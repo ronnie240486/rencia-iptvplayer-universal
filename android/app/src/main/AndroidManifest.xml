@@ -111,6 +111,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <activity
+            android:name=".ui.settings.CategoryOrderActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
             android:name=".ui.settings.AccountActivity"
             android:exported="false"
             android:screenOrientation="landscape"

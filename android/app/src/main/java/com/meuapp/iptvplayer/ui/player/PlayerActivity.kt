@@ -112,6 +112,7 @@ class PlayerActivity : AppCompatActivity() {
         updateFavoriteIcon()
         binding.btnFavorite.setOnClickListener {
             val posterUrl = intent.getStringExtra(EXTRA_POSTER_URL)
+            val epgChannelId = intent.getStringExtra(EXTRA_EPG_CHANNEL_ID)
             isFavorite = FavoritesStore.toggle(
                 this,
                 FavoriteItem(
@@ -119,7 +120,8 @@ class PlayerActivity : AppCompatActivity() {
                     title = channelName,
                     posterUrl = posterUrl,
                     streamUrl = streamUrl,
-                    addedAt = System.currentTimeMillis()
+                    addedAt = System.currentTimeMillis(),
+                    epgChannelId = epgChannelId
                 )
             )
             updateFavoriteIcon()

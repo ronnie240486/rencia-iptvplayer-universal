@@ -106,6 +106,9 @@ class SettingsActivity : AppCompatActivity() {
         configureRow(R.id.rowPlayer, "▶", "Player", "Preferências de reprodução") {
             showPlayerOptions()
         }
+        configureRow(R.id.rowCategoryOrder, "☰", "Posições das categorias", "Arrastar para reorganizar Canais") {
+            startActivity(Intent(this, CategoryOrderActivity::class.java))
+        }
         configureRow(R.id.rowDiagnostics, "✓", "Diagnóstico", "Testar conexão e autorização do painel") {
             runDiagnostic(mac)
         }

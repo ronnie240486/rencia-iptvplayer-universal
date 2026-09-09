@@ -11,7 +11,10 @@ data class FavoriteItem(
     val streamUrl: String, // pra live/vod: link direto. pra series: usado só como chave única
     val seriesId: Int? = null,
     val seriesCover: String? = null,
-    val addedAt: Long
+    val addedAt: Long,
+    // Só preenchido pra canais ao vivo -- sem isso, favoritos de canal não
+    // conseguiam buscar a programação (EPG) desse canal depois.
+    val epgChannelId: String? = null
 )
 
 /** Favoritos de verdade -- canais, filmes e séries, guardados localmente.

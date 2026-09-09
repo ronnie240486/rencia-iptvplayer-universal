@@ -36,6 +36,16 @@ class SeriesDetailActivity : AppCompatActivity() {
     private var detail: SeriesInfoResponse? = null
     private var seasons = emptyList<SeriesSeason>()
     private var seasonKeys = emptyList<String>()
+    // Sinopse que veio pronta (API Xtream, quando existir) -- listas M3U
+    // não têm esse dado, então fica null nesse caso.
+    private var apiPlot: String? = null
+    // Sinopse/ID buscados no TMDB pelo NOME da série -- único jeito de
+    // mostrar sinopse pra conteúdo vindo de M3U, que não traz isso.
+    private var tmdbOverview: String? = null
+    private var tmdbSeriesId: Int? = null
+    // Temporada selecionada no momento -- precisa saber isso (+ o número
+    // do episódio) pra buscar a sinopse de UM episódio específico no TMDB.
+    private var currentSeasonNumber: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,7 +66,7 @@ class SeriesDetailActivity : AppCompatActivity() {
         binding.detailToolbar.btnBack.setOnClickListener { finish() }
         binding.backdropView.setPoster(cover, AppearancePrefs.isBackdropPosterEnabled(this))
         binding.ivCover.load(cover) { crossfade(true) }
-        loadTmdbCover(name)
+        loadTmdbDetails(name)
         setupFavoriteButton(seriesId, name, cover)
 
         episodeAdapter = EpisodeAdapter { episode -> openEpisode(session, episode) }
@@ -67,17 +77,33 @@ class SeriesDetailActivity : AppCompatActivity() {
         loadDetails(seriesId)
     }
 
-    /** Busca o pôster oficial no TMDB pra substituir a capa genérica que
-     * costuma vir do provedor -- mesmo tratamento dado aos cards da lista
-     * de séries. */
-    private fun loadTmdbCover(name: String) {
+    /** Busca no TMDB (pelo NOME) o pôster oficial + a sinopse da série --
+     * é a única fonte possível de sinopse pra série vinda de M3U, que não
+     * traz esse dado. Mesma chamada já usada pra buscar o pôster, agora
+     * também aproveitada pra sinopse (e guarda o ID, usado depois pra
+     * buscar sinopse de episódio específico). */
+    private fun loadTmdbDetails(name: String) {
         if (name.isBlank()) return
         lifecycleScope.launch {
-            tmdbRepository.findSeriesPosterUrl(name)?.let { posterUrl ->
-                binding.ivCover.load(posterUrl) { crossfade(true) }
-                binding.backdropView.setPoster(posterUrl, AppearancePrefs.isBackdropPosterEnabled(this@SeriesDetailActivity))
+            tmdbRepository.findSeriesDetails(name)?.let { details ->
+                details.posterUrl?.let { posterUrl ->
+                    binding.ivCover.load(posterUrl) { crossfade(true) }
+                    binding.backdropView.setPoster(posterUrl, AppearancePrefs.isBackdropPosterEnabled(this@SeriesDetailActivity))
+                }
+                tmdbOverview = details.overview
+                tmdbSeriesId = details.tmdbId
+                refreshPlotDisplay()
             }
         }
+    }
+
+    /** Mostra a sinopse que tiver disponível -- prioriza a que já vem
+     * pronta (API Xtream), e só usa a do TMDB quando a lista é M3U (que
+     * nunca traz sinopse nenhuma). Chamada depois de CADA uma das duas
+     * buscas (API + TMDB) terminar, pra não perder o resultado de
+     * qualquer uma das duas por causa da ordem em que terminam. */
+    private fun refreshPlotDisplay() {
+        binding.tvPlot.text = apiPlot?.takeIf { it.isNotBlank() } ?: tmdbOverview.orEmpty()
     }
 
     /** O botão de busca do topo não faz sentido aqui (já estamos dentro de
@@ -134,7 +160,8 @@ class SeriesDetailActivity : AppCompatActivity() {
             binding.detailToolbar.tvTitle.text = info.name ?: binding.detailToolbar.tvTitle.text
             binding.ivCover.load(info.cover) { crossfade(true) }
             binding.backdropView.setPoster(info.cover, AppearancePrefs.isBackdropPosterEnabled(this))
-            binding.tvPlot.text = info.plot.orEmpty()
+            apiPlot = info.plot
+            refreshPlotDisplay()
             binding.tvMeta.text = listOfNotNull(
                 info.genre?.takeIf { it.isNotBlank() },
                 info.releaseDate?.takeIf { it.isNotBlank() },
@@ -177,6 +204,7 @@ class SeriesDetailActivity : AppCompatActivity() {
                 id: Long
             ) {
                 val key = seasonKeys.getOrNull(position) ?: return
+                currentSeasonNumber = key.toIntOrNull()
                 episodeAdapter.submitList(
                     episodesBySeason[key].orEmpty().sortedBy { it.episodeNumber ?: Int.MAX_VALUE }
                 )
@@ -184,7 +212,37 @@ class SeriesDetailActivity : AppCompatActivity() {
         })
     }
 
+    /** Antes de tocar o episódio, busca a sinopse dele no TMDB (se der pra
+     * saber qual é -- precisa do ID da série + temporada + número do
+     * episódio) e mostra pro usuário confirmar, igual a maioria dos apps
+     * de streaming faz. Se não achar sinopse nenhuma (série não
+     * encontrada no TMDB, ou episódio isolado sem número certo), toca
+     * direto sem incomodar com uma caixa vazia. */
     private fun openEpisode(session: com.meuapp.iptvplayer.data.api.Session, episode: SeriesEpisode) {
+        val seriesTmdbId = tmdbSeriesId
+        val season = currentSeasonNumber
+        val episodeNumber = episode.episodeNumber
+        if (seriesTmdbId == null || season == null || episodeNumber == null) {
+            playEpisode(session, episode)
+            return
+        }
+        lifecycleScope.launch {
+            val overview = runCatching { tmdbRepository.findEpisodeOverview(seriesTmdbId, season, episodeNumber) }.getOrNull()
+            if (overview.isNullOrBlank()) {
+                playEpisode(session, episode)
+            } else {
+                val title = episode.title?.takeIf { it.isNotBlank() } ?: "Episódio $episodeNumber"
+                androidx.appcompat.app.AlertDialog.Builder(this@SeriesDetailActivity)
+                    .setTitle(title)
+                    .setMessage(overview)
+                    .setPositiveButton("Assistir") { _, _ -> playEpisode(session, episode) }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun playEpisode(session: com.meuapp.iptvplayer.data.api.Session, episode: SeriesEpisode) {
         val url = episode.directStreamUrl ?: repository.buildSeriesStreamUrl(session, episode.id, episode.containerExtension)
         val seriesName = intent.getStringExtra(EXTRA_SERIES_NAME).orEmpty()
         val cover = intent.getStringExtra(EXTRA_SERIES_COVER)

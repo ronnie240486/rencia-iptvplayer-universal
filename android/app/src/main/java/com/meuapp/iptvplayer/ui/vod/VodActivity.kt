@@ -30,6 +30,7 @@ class VodActivity : AppCompatActivity() {
     private lateinit var binding: ActivityVodBinding
     private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
+    private val tmdbRepository = com.meuapp.iptvplayer.data.api.TmdbRepository()
     private lateinit var categoryAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: VodAdapter
     private var selectedPosterUrl: String? = null
@@ -58,7 +59,7 @@ class VodActivity : AppCompatActivity() {
         ) { category -> onCategorySelected(category) }
 
         gridAdapter = VodAdapter(
-            onClick = { movie -> openPlayer(movie) },
+            onClick = { movie -> confirmAndOpen(movie) },
             onFocused = { movie ->
                 selectedPosterUrl = movie.streamIcon
                 binding.backdropView.setPoster(movie.streamIcon, AppearancePrefs.isBackdropPosterEnabled(this))
@@ -101,15 +102,6 @@ class VodActivity : AppCompatActivity() {
                     }
                 }
             setLoading(false)
-            // DIAGNÓSTICO TEMPORÁRIO -- AlertDialog (não Toast) pra não
-            // cortar o texto.
-            com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
-                androidx.appcompat.app.AlertDialog.Builder(this@VodActivity)
-                    .setTitle("Diagnóstico (temporário)")
-                    .setMessage(it)
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
         }
         lifecycleScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(6000) { renciaRepository.refreshSessionIfChanged(session).getOrNull() }?.let { updated ->
@@ -141,6 +133,26 @@ class VodActivity : AppCompatActivity() {
                     }
                 }
             setLoading(false)
+        }
+    }
+
+    /** Listas M3U não trazem sinopse nenhuma (só nome/categoria/logo/link)
+     * -- busca no TMDB pelo NOME do filme antes de tocar, pra pessoa saber
+     * do que se trata. Se não achar nada no TMDB, toca direto sem
+     * incomodar com uma caixa vazia (mesmo comportamento de antes). */
+    private fun confirmAndOpen(movie: VodStream) {
+        lifecycleScope.launch {
+            val overview = runCatching { tmdbRepository.findMovieOverview(movie.name) }.getOrNull()
+            if (overview.isNullOrBlank()) {
+                openPlayer(movie)
+            } else {
+                AlertDialog.Builder(this@VodActivity)
+                    .setTitle(movie.name)
+                    .setMessage(overview)
+                    .setPositiveButton("Assistir") { _, _ -> openPlayer(movie) }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
         }
     }
 

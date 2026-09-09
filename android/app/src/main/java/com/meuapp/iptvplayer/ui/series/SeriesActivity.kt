@@ -95,15 +95,6 @@ class SeriesActivity : AppCompatActivity() {
                     }
                 }
             setLoading(false)
-            // DIAGNÓSTICO TEMPORÁRIO -- AlertDialog (não Toast) pra não
-            // cortar o texto.
-            com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
-                androidx.appcompat.app.AlertDialog.Builder(this@SeriesActivity)
-                    .setTitle("Diagnóstico (temporário)")
-                    .setMessage(it)
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
         }
         lifecycleScope.launch {
             kotlinx.coroutines.withTimeoutOrNull(6000) { renciaRepository.refreshSessionIfChanged(session).getOrNull() }?.let { updated ->

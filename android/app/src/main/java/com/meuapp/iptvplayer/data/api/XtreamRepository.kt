@@ -71,25 +71,22 @@ class XtreamRepository(context: Context? = null) {
         // sem isso as telas de Filmes/Séries tinham o mesmo travamento ao
         // trocar de categoria que Canais tinha antes de corrigir.
         private val vodByCategoryCache = mutableMapOf<String, MutableMap<String, List<VodStream>>>() // idem, sob demanda
-        // Séries continua sendo montada de uma vez só (não sob demanda) --
-        // Favoritos pode abrir uma série DIRETO (sem passar pela tela de
-        // categorias primeiro) usando só o seriesId salvo, e isso depende
-        // de m3uSeriesLookup já estar populado. Sem montar todas as
-        // categorias de série de antemão, um favorito de série aberto logo
-        // depois de reabrir o app (processo novo, sem ter navegado em
-        // Séries ainda) quebraria. Canais/Filmes não têm esse problema --
-        // Favoritos guarda o link de stream direto, não depende de nada
-        // disso pra tocar.
-        private val seriesByCategoryCache = mutableMapOf<String, Map<String, List<SeriesItem>>>()
-        // Índices (não os objetos montados) de Canais e Filmes por
+        // Séries agora TAMBÉM é sob demanda -- ficou seguro de fazer
+        // porque a tabela seriesId -> (categoria, nome) que Favoritos
+        // precisa (m3uSeriesLookup) passou a ser lida direto do cache em
+        // disco (persistida uma vez no download), em vez de depender de
+        // todas as categorias de série já terem sido montadas em memória.
+        private val seriesByCategoryCache = mutableMapOf<String, MutableMap<String, List<SeriesItem>>>()
+        // Índices (não os objetos montados) de Canais, Filmes e Séries por
         // categoria -- só os NOMES das categorias e quais posições da
         // lista pertencem a cada uma. Ler isso é praticamente instantâneo
         // (só chaves de mapa, nenhuma reconstrução de objeto); a lista de
         // exibição de verdade só é montada quando o usuário abre aquela
         // categoria específica (ver liveStreamsByCategoryCache/
-        // vodByCategoryCache acima).
+        // vodByCategoryCache/seriesByCategoryCache acima).
         private val liveIndicesByCategoryCache = mutableMapOf<String, Map<String, List<Int>>>()
         private val vodIndicesByCategoryCache = mutableMapOf<String, Map<String, List<Int>>>()
+        private val seriesIndicesByCategoryCache = mutableMapOf<String, Map<String, List<Int>>>()
         // Trava por conta (cacheKey) -- a Home dispara prefetchEpgGuide()
         // sozinha, em segundo plano, assim que abre. Se o usuário entra em
         // Canais/Filmes/Séries logo em seguida, ISSO também chama
@@ -201,6 +198,7 @@ class XtreamRepository(context: Context? = null) {
         // sincronizados com a lista de canais correta.
         liveIndicesByCategoryCache.remove(key)
         vodIndicesByCategoryCache.remove(key)
+        seriesIndicesByCategoryCache.remove(key)
         liveStreamsByCategoryCache.remove(key)
         vodByCategoryCache.remove(key)
         seriesByCategoryCache.remove(key)
@@ -220,7 +218,15 @@ class XtreamRepository(context: Context? = null) {
         // só a CLASSIFICAÇÃO (saber quem é o quê) que era cara.
         val liveIndicesByCategory: Map<String, List<Int>>? = null,
         val vodIndicesByCategory: Map<String, List<Int>>? = null,
-        val seriesIndicesByCategory: Map<String, List<Int>>? = null
+        val seriesIndicesByCategory: Map<String, List<Int>>? = null,
+        // Tabela leve (seriesId -> categoria + nome da série) calculada
+        // uma vez só (no download) e salva em disco -- é o que permite
+        // Séries também ser montada SOB DEMANDA (por categoria) sem
+        // quebrar Favoritos: abrir uma série favoritada direto (sem
+        // passar pela tela de categorias) só precisa saber em qual
+        // categoria/nome ela está pra buscar os episódios, não precisa
+        // ter montado a lista de exibição inteira daquela categoria.
+        val seriesLookup: Map<Int, Pair<String, String>>? = null
     )
 
     /** Classifica os canais (índice de cada um -> categoria) de uma vez --
@@ -242,9 +248,11 @@ class XtreamRepository(context: Context? = null) {
 
     /** Reconstrói os agrupamentos de verdade (LiveStream/VodStream/
      * SeriesItem por categoria) a partir dos ÍNDICES já classificados --
-     * rápido (sem regex nenhuma), só monta os objetos de exibição.
-     * Usada só pra Séries agora (ver comentário de seriesByCategoryCache
-     * acima) -- Canais/Filmes usam as versões SOB DEMANDA abaixo. */
+     * rápido (sem regex nenhuma pra Canais/Filmes). Usada só na hora do
+     * DOWNLOAD (ou upgrade de cache antigo) pra Séries, uma vez só, pra
+     * conseguir derivar a tabela leve de seriesLookup (ver comentário de
+     * CachedPlaylistData.seriesLookup) que fica salva em disco -- depois
+     * disso, Séries também vira sob demanda (buildSeriesCategoryLazy). */
     private fun buildSeriesGroupsFromIndices(
         channels: List<M3uParser.ParsedChannel>,
         seriesIndices: Map<String, List<Int>>
@@ -281,6 +289,22 @@ class XtreamRepository(context: Context? = null) {
         return built
     }
 
+    /** Mesma ideia de buildLiveCategoryLazy/buildVodCategoryLazy, pra
+     * Séries -- agora seguro de fazer porque m3uSeriesLookup (usado por
+     * Favoritos pra abrir uma série direto) é lido da tabela persistida
+     * em disco (CachedPlaylistData.seriesLookup), não depende mais de
+     * TODAS as categorias de série já terem sido montadas. */
+    private fun buildSeriesCategoryLazy(cacheKey: String, categoryName: String): List<SeriesItem> {
+        val perCategory = seriesByCategoryCache.getOrPut(cacheKey) { mutableMapOf() }
+        perCategory[categoryName]?.let { return it }
+        val channels = m3uCache[cacheKey] ?: return emptyList()
+        val indices = seriesIndicesByCategoryCache[cacheKey]?.get(categoryName) ?: return emptyList()
+        val built = M3uParser.toSeriesShowsFromSubset(indices.map { channels[it] }, categoryName)
+        built.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryName to show.name }
+        perCategory[categoryName] = built
+        return built
+    }
+
     // ---- Formato de cache em disco: texto simples, feito à mão -- SEM
     // Gson/JSON pra esse arquivo especificamente. Um teste real (painel
     // com 270.501 canais, arquivo de 68MB) mostrou ~17s só pra LER os
@@ -291,7 +315,11 @@ class XtreamRepository(context: Context? = null) {
     // por um caractere reservado) é MUITO mais rápido de ler/escrever
     // porque não tem reflection nem a árvore intermediária de JsonElement
     // que o Gson monta antes de converter pra objeto Kotlin.
-    private val CACHE_FORMAT_VERSION = "SUPREMUS_CACHE_V2"
+    // V3: adiciona a seção de seriesLookup (ver CachedPlaylistData) --
+    // um cache V2 salvo por um build anterior não bate com esse marcador
+    // de versão, então é tratado como ausente (baixa de novo UMA vez e já
+    // salva em V3 dali em diante), igual a migração V1(JSON)->V2 antes.
+    private val CACHE_FORMAT_VERSION = "SUPREMUS_CACHE_V3"
     private val FIELD_SEP = '\u0001'
     private val NULL_MARKER = "\u0000"
 
@@ -385,7 +413,23 @@ class XtreamRepository(context: Context? = null) {
         val liveIdx = readIndexMap()
         val vodIdx = readIndexMap()
         val seriesIdx = readIndexMap()
-        return CachedPlaylistData(channels, epgUrl, liveIdx, vodIdx, seriesIdx)
+        // Tabela seriesId -> (categoria, nome) -- usada por Favoritos pra
+        // abrir uma série direto sem precisar montar a categoria inteira.
+        val seriesLookupCount = lines[i].toInt(); i++
+        val seriesLookup = LinkedHashMap<Int, Pair<String, String>>(seriesLookupCount)
+        repeat(seriesLookupCount) {
+            val parts = lines[i].split(FIELD_SEP)
+            i++
+            if (parts.size == 3) {
+                val seriesId = parts[0].toIntOrNull()
+                val categoryName = readField(parts[1])
+                val showName = readField(parts[2])
+                if (seriesId != null && categoryName != null && showName != null) {
+                    seriesLookup[seriesId] = categoryName to showName
+                }
+            }
+        }
+        return CachedPlaylistData(channels, epgUrl, liveIdx, vodIdx, seriesIdx, seriesLookup)
     }
 
     private fun writeParsedCache(cacheKey: String, data: CachedPlaylistData) {
@@ -465,6 +509,18 @@ class XtreamRepository(context: Context? = null) {
             writeIndexMap(data.liveIndicesByCategory)
             writeIndexMap(data.vodIndicesByCategory)
             writeIndexMap(data.seriesIndicesByCategory)
+            // Tabela seriesId -> (categoria, nome) -- ver comentário de
+            // CachedPlaylistData.seriesLookup.
+            val lookup = data.seriesLookup.orEmpty()
+            writer.write(lookup.size.toString()); writer.newLine()
+            for ((seriesId, catAndName) in lookup) {
+                writer.write(seriesId.toString())
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(catAndName.first))
+                writer.write(FIELD_SEP.toString())
+                writer.write(sanitizeField(catAndName.second))
+                writer.newLine()
+            }
         }
         tempFile.renameTo(file)
     }
@@ -541,31 +597,32 @@ class XtreamRepository(context: Context? = null) {
         if (cached != null && cached.channels.isNotEmpty()) {
             m3uCache[cacheKey] = cached.channels
             epgUrlCache[cacheKey] = cached.epgUrl
-            // Canais/Filmes: só guarda os ÍNDICES (nomes de categoria +
-            // posições) -- rápido, sem montar objeto nenhum. A lista de
-            // exibição de cada categoria só é montada quando o usuário
-            // abrir ela de verdade (ver buildLiveCategoryLazy/
-            // buildVodCategoryLazy). Séries continua eager (ver comentário
-            // de seriesByCategoryCache).
+            // Canais/Filmes/Séries: só guarda os ÍNDICES (nomes de
+            // categoria + posições) -- rápido, sem montar objeto nenhum. A
+            // lista de exibição de cada categoria só é montada quando o
+            // usuário abrir ela de verdade (ver buildLiveCategoryLazy/
+            // buildVodCategoryLazy/buildSeriesCategoryLazy). A tabela que
+            // Favoritos precisa pra abrir uma série direto (seriesLookup)
+            // vem pronta do disco, sem precisar montar categoria nenhuma.
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 if (cached.liveIndicesByCategory != null) {
                     liveIndicesByCategoryCache[cacheKey] = cached.liveIndicesByCategory
                     vodIndicesByCategoryCache[cacheKey] = cached.vodIndicesByCategory.orEmpty()
-                    val series = buildSeriesGroupsFromIndices(cached.channels, cached.seriesIndicesByCategory.orEmpty())
-                    seriesByCategoryCache[cacheKey] = series
-                    series.forEach { (categoryId, shows) ->
-                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                    }
+                    seriesIndicesByCategoryCache[cacheKey] = cached.seriesIndicesByCategory.orEmpty()
+                    cached.seriesLookup?.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
                 } else {
+                    // Cache antigo (de antes dessa correção), sem os índices
+                    // salvos ainda -- classifica agora e reescreve o cache já
+                    // com tudo pronto pra próxima vez.
                     val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
                     liveIndicesByCategoryCache[cacheKey] = liveIdx
                     vodIndicesByCategoryCache[cacheKey] = vodIdx
+                    seriesIndicesByCategoryCache[cacheKey] = seriesIdx
                     val series = buildSeriesGroupsFromIndices(cached.channels, seriesIdx)
-                    seriesByCategoryCache[cacheKey] = series
-                    series.forEach { (categoryId, shows) ->
-                        shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                    }
-                    writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
+                    seriesByCategoryCache[cacheKey] = series.toMutableMap()
+                    val seriesLookup = series.flatMap { (cat, shows) -> shows.map { it.seriesId to (cat to it.name) } }.toMap()
+                    seriesLookup.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
+                    writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx, seriesLookup))
                 }
             }
             onProgress(1, 1)
@@ -604,12 +661,12 @@ class XtreamRepository(context: Context? = null) {
                 val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
                 liveIndicesByCategoryCache[cacheKey] = liveIdx
                 vodIndicesByCategoryCache[cacheKey] = vodIdx
+                seriesIndicesByCategoryCache[cacheKey] = seriesIdx
                 val series = buildSeriesGroupsFromIndices(parsed, seriesIdx)
-                seriesByCategoryCache[cacheKey] = series
-                series.forEach { (categoryId, shows) ->
-                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                }
-                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrlCache[cacheKey], liveIdx, vodIdx, seriesIdx))
+                seriesByCategoryCache[cacheKey] = series.toMutableMap()
+                val seriesLookup = series.flatMap { (cat, shows) -> shows.map { it.seriesId to (cat to it.name) } }.toMap()
+                seriesLookup.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
+                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrlCache[cacheKey], liveIdx, vodIdx, seriesIdx, seriesLookup))
             }
         }
     }
@@ -642,13 +699,13 @@ class XtreamRepository(context: Context? = null) {
             if (cached != null && cached.channels.isNotEmpty()) {
                 m3uCache[cacheKey] = cached.channels
                 epgUrlCache[cacheKey] = cached.epgUrl
-                // Canais/Filmes: só guarda os ÍNDICES (instantâneo, sem
-                // montar objeto nenhum) -- a lista de exibição de cada
+                // Canais/Filmes/Séries: só guarda os ÍNDICES (instantâneo,
+                // sem montar objeto nenhum) -- a lista de exibição de cada
                 // categoria só é montada quando o usuário abre ela de
-                // verdade (buildLiveCategoryLazy/buildVodCategoryLazy).
-                // Isso é o que elimina a "montagem" (que chegava a ~3-4s
-                // pra TODAS as categorias) do caminho crítico de abrir a
-                // tela. Séries continua eager (ver seriesByCategoryCache).
+                // verdade (buildLiveCategoryLazy/buildVodCategoryLazy/
+                // buildSeriesCategoryLazy). A tabela que Favoritos precisa
+                // (seriesLookup) vem pronta do disco. Isso é o que elimina
+                // a "montagem" do caminho crítico de abrir a tela.
                 // CRÍTICO: mesmo sendo mais leve agora, ainda roda em
                 // Dispatchers.IO explicitamente -- não pode voltar a rodar
                 // na thread principal (era isso que travava a tela antes).
@@ -656,11 +713,8 @@ class XtreamRepository(context: Context? = null) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         liveIndicesByCategoryCache[cacheKey] = cached.liveIndicesByCategory
                         vodIndicesByCategoryCache[cacheKey] = cached.vodIndicesByCategory.orEmpty()
-                        val series = buildSeriesGroupsFromIndices(cached.channels, cached.seriesIndicesByCategory.orEmpty())
-                        seriesByCategoryCache[cacheKey] = series
-                        series.forEach { (categoryId, shows) ->
-                            shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                        }
+                        seriesIndicesByCategoryCache[cacheKey] = cached.seriesIndicesByCategory.orEmpty()
+                        cached.seriesLookup?.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
                     }
                 } else {
                     // Cache antigo (de antes dessa correção), sem os índices
@@ -670,16 +724,16 @@ class XtreamRepository(context: Context? = null) {
                         val (liveIdx, vodIdx, seriesIdx) = classifyIndices(cached.channels)
                         liveIndicesByCategoryCache[cacheKey] = liveIdx
                         vodIndicesByCategoryCache[cacheKey] = vodIdx
+                        seriesIndicesByCategoryCache[cacheKey] = seriesIdx
                         val series = buildSeriesGroupsFromIndices(cached.channels, seriesIdx)
-                        seriesByCategoryCache[cacheKey] = series
-                        series.forEach { (categoryId, shows) ->
-                            shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                        }
-                        writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx))
+                        seriesByCategoryCache[cacheKey] = series.toMutableMap()
+                        val seriesLookup = series.flatMap { (cat, shows) -> shows.map { it.seriesId to (cat to it.name) } }.toMap()
+                        seriesLookup.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
+                        writeParsedCache(cacheKey, CachedPlaylistData(cached.channels, cached.epgUrl, liveIdx, vodIdx, seriesIdx, seriesLookup))
                     }
                 }
                 val t2 = System.nanoTime()
-                val timing = "V2 | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | parse=${timedRead.parseMs}ms | montagem(series)=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
+                val timing = "V3 | arquivo=${timedRead.fileBytes}B | ler=${timedRead.readMs}ms | parse=${timedRead.parseMs}ms | indices=${(t2 - t1) / 1_000_000}ms | canais=${cached.channels.size}"
                 lastLoadTiming = timing
                 diagPrefs?.edit()?.putString("last_load_timing", timing)?.apply()
                 return@withLock cached.channels
@@ -697,12 +751,12 @@ class XtreamRepository(context: Context? = null) {
                 val (liveIdx, vodIdx, seriesIdx) = classifyIndices(parsed)
                 liveIndicesByCategoryCache[cacheKey] = liveIdx
                 vodIndicesByCategoryCache[cacheKey] = vodIdx
+                seriesIndicesByCategoryCache[cacheKey] = seriesIdx
                 val series = buildSeriesGroupsFromIndices(parsed, seriesIdx)
-                seriesByCategoryCache[cacheKey] = series
-                series.forEach { (categoryId, shows) ->
-                    shows.forEach { show -> m3uSeriesLookup[show.seriesId] = categoryId to show.name }
-                }
-                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, liveIdx, vodIdx, seriesIdx))
+                seriesByCategoryCache[cacheKey] = series.toMutableMap()
+                val seriesLookup = series.flatMap { (cat, shows) -> shows.map { it.seriesId to (cat to it.name) } }.toMap()
+                seriesLookup.forEach { (seriesId, catAndName) -> m3uSeriesLookup[seriesId] = catAndName }
+                writeParsedCache(cacheKey, CachedPlaylistData(parsed, epgUrl, liveIdx, vodIdx, seriesIdx, seriesLookup))
             }
             val t2 = System.nanoTime()
             val timing = "MISS (baixou agora) | total=${(t2 - t0) / 1_000_000}ms | canais=${parsed.size}"
@@ -991,8 +1045,16 @@ class XtreamRepository(context: Context? = null) {
     suspend fun getSeriesCategories(session: Session): Result<List<Category>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank()) {
             val m3uResult = runCatching {
-                seriesByCategory(session).keys.sortedBy { it.lowercase() }
-                    .map { Category(categoryId = it, categoryName = it) }
+                // Só os NOMES das categorias -- lê direto do mapa de
+                // ÍNDICES, sem montar SeriesItem nenhum (ver comentário
+                // equivalente em getLiveCategories/getVodCategories).
+                val cacheKey = cacheKeyFor(session)
+                var idx = seriesIndicesByCategoryCache[cacheKey]
+                if (idx == null) {
+                    fetchM3uChannels(session)
+                    idx = seriesIndicesByCategoryCache[cacheKey].orEmpty()
+                }
+                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
@@ -1004,21 +1066,26 @@ class XtreamRepository(context: Context? = null) {
         categories.sortedBy { it.categoryName.lowercase() }
     }
 
-    /** Calcula "séries já separadas por categoria" só UMA vez por sessão
-     * (fica em cache) -- mesma ideia de Canais/Filmes: classificar e
-     * agrupar por episódio (SxxExx) é caro pra refazer a cada clique numa
-     * categoria diferente. */
-    private suspend fun seriesByCategory(session: Session): Map<String, List<SeriesItem>> {
+    /** Garante que o mapa de ÍNDICES de Séries por categoria está pronto
+     * (não monta SeriesItem nenhum ainda -- isso só acontece sob demanda,
+     * em buildSeriesCategoryLazy, quando uma categoria específica é
+     * aberta). */
+    private suspend fun ensureSeriesIndices(session: Session): Map<String, List<Int>> {
         val cacheKey = cacheKeyFor(session)
-        seriesByCategoryCache[cacheKey]?.let { return it }
-        // fetchM3uChannels já deixa esse cache pronto (disco ou na hora).
+        seriesIndicesByCategoryCache[cacheKey]?.let { return it }
         fetchM3uChannels(session)
-        return seriesByCategoryCache[cacheKey].orEmpty()
+        return seriesIndicesByCategoryCache[cacheKey].orEmpty()
     }
 
     suspend fun getSeries(session: Session, categoryId: String?): Result<List<SeriesItem>> = runCatching {
         if (!session.playlistUrl.isNullOrBlank() && categoryId != null) {
-            val m3uResult = runCatching { seriesByCategory(session)[categoryId].orEmpty() }
+            val m3uResult = runCatching {
+                val cacheKey = cacheKeyFor(session)
+                ensureSeriesIndices(session)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    buildSeriesCategoryLazy(cacheKey, categoryId)
+                }
+            }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
         val catParam = if (categoryId != null) "&category_id=$categoryId" else ""
@@ -1035,9 +1102,20 @@ class XtreamRepository(context: Context? = null) {
      * série / temporada / episódio como a API Xtream faz. */
 
     suspend fun getSeriesInfo(session: Session, seriesId: Int): Result<SeriesInfoResponse> = runCatching {
-        m3uSeriesLookup[seriesId]?.let { (categoryName, showName) ->
-            val channels = fetchM3uChannels(session)
-            return@runCatching M3uParser.toSeriesInfo(channels, categoryName, showName)
+        if (!session.playlistUrl.isNullOrBlank()) {
+            // Garante que a tabela seriesId -> (categoria, nome) já foi
+            // carregada do disco ANTES de checar -- sem isso, a primeira
+            // chamada do processo (ex: abrir um favorito de série direto,
+            // antes de qualquer outra tela ter chamado fetchM3uChannels)
+            // sempre batia com o lookup vazio e caía pra API Xtream (que
+            // não existe nesse tipo de painel M3U-only), mesmo a série
+            // sendo encontrável.
+            val channels = runCatching { fetchM3uChannels(session) }.getOrNull()
+            if (channels != null) {
+                m3uSeriesLookup[seriesId]?.let { (categoryName, showName) ->
+                    return@runCatching M3uParser.toSeriesInfo(channels, categoryName, showName)
+                }
+            }
         }
         val url = "${normalizeBase(session.serverUrl)}/player_api.php" +
                 "?username=${session.username}&password=${session.password}" +

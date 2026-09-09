@@ -27,8 +27,12 @@ object AdultContentGuard {
     /** Categorias normais primeiro (ordem alfabética), categorias adultas
      * escondidas no final (também em ordem alfabética entre si). */
     fun sortWithAdultLast(categories: List<Category>): List<Category> {
+        // SEM ordenar em ordem alfabética -- só separa (mantendo a ordem
+        // NATURAL de cada grupo) as categorias adultas pro final. Isso
+        // aqui era o que continuava embaralhando a ordem mesmo depois de
+        // tirar a ordenação alfabética lá no repositório.
         val (adult, normal) = categories.partition { isAdultCategory(it.categoryName) }
-        return normal.sortedBy { it.categoryName.lowercase() } + adult.sortedBy { it.categoryName.lowercase() }
+        return normal + adult
     }
 
     /** Se a categoria é adulta, SEMPRE pede o PIN antes de continuar --

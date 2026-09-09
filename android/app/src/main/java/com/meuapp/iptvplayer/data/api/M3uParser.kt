@@ -233,13 +233,29 @@ object M3uParser {
      * filme/série é tratado como "ao vivo". */
     private fun contentKind(channel: ParsedChannel): String {
         val url = channel.streamUrl.lowercase()
-        val group = channel.groupTitle.lowercase()
+        val group = channel.groupTitle.lowercase().trim()
+        val hasFilme = listOf("filme", "vod", "movie", "filmes").any { it in group }
+        val hasSerie = listOf("serie", "series", "séries").any { it in group }
         return when {
             "/movie/" in url -> "vod"
             "/series/" in url -> "series"
             "/live/" in url -> "live"
-            listOf("filme", "vod", "movie", "filmes").any { it in group } -> "vod"
-            listOf("serie", "series", "séries").any { it in group } -> "series"
+            // Categorias de canais 24h LINEARES (ex: "24/7 CINE FILMES")
+            // têm "filme"/"série" no nome, mas não são catálogo de título
+            // avulso -- são canais contínuos (tipo HBO/Telecine/AMC/Space/
+            // TNT), onde cada "filme" listado é o MESMO canal repetido,
+            // sem nome próprio de verdade (confirmado pelo usuário: os
+            // itens apareciam todos com a mesma imagem genérica "24H").
+            // Categorias assim precisam ficar em Canais, não em Filmes.
+            group.startsWith("24/7") || group.startsWith("24h") -> "live"
+            // Categoria com "filme" E "série" juntos no nome (ex: "Filmes
+            // e Séries") -- catálogo de título avulso de verdade normalmente
+            // vem separado ("Filmes | Ação", "Series | Drama"); um nome
+            // misturando os dois costuma ser outro sinal de canal linear
+            // variado, não catálogo selecionável.
+            hasFilme && hasSerie -> "live"
+            hasFilme -> "vod"
+            hasSerie -> "series"
             episodeInfo(channel.name) != null -> "series"
             else -> "live"
         }

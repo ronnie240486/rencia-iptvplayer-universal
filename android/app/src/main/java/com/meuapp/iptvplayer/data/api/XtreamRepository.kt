@@ -307,7 +307,13 @@ class XtreamRepository(context: Context? = null) {
     // um cache V2 salvo por um build anterior não bate com esse marcador
     // de versão, então é tratado como ausente (baixa de novo UMA vez e já
     // salva em V3 dali em diante), igual a migração V1(JSON)->V2 antes.
-    private val CACHE_FORMAT_VERSION = "SUPREMUS_CACHE_V3"
+    // V4: mesma estrutura de arquivo do V3 -- só muda pra forçar uma
+    // reclassificação (não é possível herdar de um cache já processado com
+    // a lógica antiga de ao-vivo/filme/série, ver ajuste em
+    // M3uParser.contentKind). Cache V3 de um build anterior não bate com
+    // esse marcador, então é tratado como ausente -- baixa de novo UMA vez
+    // e classifica com a lógica corrigida, igual as migrações anteriores.
+    private val CACHE_FORMAT_VERSION = "SUPREMUS_CACHE_V4"
     private val FIELD_SEP = '\u0001'
     private val NULL_MARKER = "\u0000"
 
@@ -645,9 +651,14 @@ class XtreamRepository(context: Context? = null) {
         }.getOrNull()
     }
 
-    private val FAST_VERSION_LIVE = "SUPREMUS_FAST_V1_LIVE"
-    private val FAST_VERSION_VOD = "SUPREMUS_FAST_V1_VOD"
-    private val FAST_VERSION_SERIES = "SUPREMUS_FAST_V1_SERIES"
+    // V2: mesma estrutura -- só muda pra forçar reconstrução a partir da
+    // reclassificação corrigida (ver CACHE_FORMAT_VERSION acima e o ajuste
+    // em M3uParser.contentKind). Sem isso, esses arquivos (que já
+    // existiam com a classificação ANTIGA) continuariam sendo lidos
+    // direto, sem nunca passar pelo cache unificado que foi corrigido.
+    private val FAST_VERSION_LIVE = "SUPREMUS_FAST_V2_LIVE"
+    private val FAST_VERSION_VOD = "SUPREMUS_FAST_V2_VOD"
+    private val FAST_VERSION_SERIES = "SUPREMUS_FAST_V2_SERIES"
 
     /** Depois de baixar/classificar a lista (uma vez só), separa e grava os
      * 3 arquivos rápidos -- é o que faz abrir Canais/Filmes/Séries depois

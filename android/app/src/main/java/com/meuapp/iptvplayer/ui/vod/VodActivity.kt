@@ -25,6 +25,11 @@ import java.text.Normalizer
 
 class VodActivity : AppCompatActivity() {
 
+    companion object {
+        private const val CATEGORY_RECENT = "__recent__"
+        private const val CATEGORY_FAVORITES = "__favorites__"
+    }
+
     private lateinit var binding: ActivityVodBinding
     private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
@@ -89,7 +94,10 @@ class VodActivity : AppCompatActivity() {
         // até essa checagem terminar.
         lifecycleScope.launch {
             repository.getVodCategories(session)
-                .onSuccess { categories -> categoryAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories)) }
+                .onSuccess { categories ->
+                    val allCategories = pinnedCategories() + categories
+                    categoryAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(allCategories))
+                }
                 .onFailure {
                     // Sair da tela antes da busca terminar cancela ela
                     // sozinho (Android fazendo isso) -- não é erro de
@@ -109,11 +117,33 @@ class VodActivity : AppCompatActivity() {
         }
     }
 
+    /** Duas categorias fixas no topo, feitas de Favoritos e Histórico
+     * (guardados localmente no aparelho, não vêm da lista do provedor). */
+    private fun pinnedCategories(): List<Category> = listOf(
+        Category(categoryId = CATEGORY_RECENT, categoryName = "Recém Assistidos"),
+        Category(categoryId = CATEGORY_FAVORITES, categoryName = "Favoritos")
+    )
+
     private fun loadMovies(categoryId: String, categoryName: String) {
         val session = SessionStore.getSavedSession(this) ?: return
         currentCategoryName = categoryName
         binding.toolbar.tvSubtitle.text = "$categoryName · carregando filmes…"
         setLoading(true)
+        if (categoryId == CATEGORY_RECENT || categoryId == CATEGORY_FAVORITES) {
+            val movies = if (categoryId == CATEGORY_RECENT) {
+                com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this)
+                    .filter { it.kind == "vod" }
+                    .map { it.toVodStream() }
+            } else {
+                com.meuapp.iptvplayer.util.FavoritesStore.readAll(this)
+                    .filter { it.kind == "vod" }
+                    .map { it.toVodStream() }
+            }
+            gridAdapter.submitList(movies)
+            binding.toolbar.tvSubtitle.text = "$categoryName · ${movies.size} filmes"
+            setLoading(false)
+            return
+        }
         lifecycleScope.launch {
             repository.getVodStreams(session, categoryId)
                 .onSuccess { movies ->
@@ -134,6 +164,18 @@ class VodActivity : AppCompatActivity() {
             setLoading(false)
         }
     }
+
+    /** Converte um item de Histórico/Favoritos num VodStream "de
+     * mentirinha" só pra reaproveitar a mesma tela de detalhes de sempre. */
+    private fun com.meuapp.iptvplayer.util.WatchHistoryItem.toVodStream() = VodStream(
+        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        categoryId = null, rating = null, containerExtension = null, directStreamUrl = streamUrl
+    )
+
+    private fun com.meuapp.iptvplayer.util.FavoriteItem.toVodStream() = VodStream(
+        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        categoryId = null, rating = null, containerExtension = null, directStreamUrl = streamUrl
+    )
 
     /** Abre a tela de detalhes do filme (pôster grande, sinopse, botão
      * Assistir) -- mesma experiência da tela de detalhes de série. */

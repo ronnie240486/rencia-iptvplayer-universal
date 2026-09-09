@@ -36,6 +36,10 @@ class ChannelListActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_OPEN_EPG = "extra_open_epg"
+        // IDs fixos das duas categorias "fixadas" no topo da lista, feitas
+        // de Favoritos/Histórico local -- não vêm do provedor.
+        private const val CATEGORY_RECENT = "__recent__"
+        private const val CATEGORY_FAVORITES = "__favorites__"
     }
 
     private lateinit var binding: ActivityChannelListBinding
@@ -194,8 +198,12 @@ class ChannelListActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repository.getLiveCategories(session)
                 .onSuccess { categories ->
-                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(categories))
-                    loadedCategories = categories
+                    // Duas categorias "fixadas" no topo, feitas de
+                    // Favoritos/Histórico salvos localmente (não vêm do
+                    // provedor) -- igual outros apps de IPTV já fazem.
+                    val allCategories = pinnedCategories() + categories
+                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(allCategories))
+                    loadedCategories = allCategories
                     if (categories.isEmpty()) {
                         showError("O provedor respondeu, mas não retornou nenhuma categoria de canal.")
                     }
@@ -215,11 +223,35 @@ class ChannelListActivity : AppCompatActivity() {
         }
     }
 
+    /** Duas categorias fixas no topo, feitas de Favoritos e Histórico
+     * (guardados localmente no aparelho, não vêm da lista do provedor) --
+     * mesmo padrão que outros apps de IPTV já usam. */
+    private fun pinnedCategories(): List<Category> = listOf(
+        Category(categoryId = CATEGORY_RECENT, categoryName = "Recém Assistidos"),
+        Category(categoryId = CATEGORY_FAVORITES, categoryName = "Favoritos")
+    )
+
     private fun loadChannels(categoryId: String, categoryName: String) {
         val session = SessionStore.getSavedSession(this) ?: return
         binding.toolbar.tvSubtitle.text = "$categoryName · selecione para assistir"
         binding.tvChannelsHeader.text = "$categoryName · carregando canais…"
         setLoading(true)
+        // As duas categorias fixas não vêm do provedor -- lê direto do
+        // que já está salvo no aparelho, sem chamada de rede nenhuma.
+        if (categoryId == CATEGORY_RECENT || categoryId == CATEGORY_FAVORITES) {
+            val channels = if (categoryId == CATEGORY_RECENT) {
+                com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this)
+                    .filter { it.kind == "live" }
+                    .map { it.toLiveStream() }
+            } else {
+                com.meuapp.iptvplayer.util.FavoritesStore.readAll(this)
+                    .filter { it.kind == "live" }
+                    .map { it.toLiveStream() }
+            }
+            displayChannels(channels, categoryName)
+            setLoading(false)
+            return
+        }
         lifecycleScope.launch {
             repository.getLiveStreams(session, categoryId)
                 .onSuccess { channels ->
@@ -243,6 +275,20 @@ class ChannelListActivity : AppCompatActivity() {
             setLoading(false)
         }
     }
+
+    /** Converte um item de Histórico/Favoritos num LiveStream "de
+     * mentirinha" só pra reaproveitar a mesma tela/adapter de sempre --
+     * já tem o link de reprodução pronto (directStreamUrl), não precisa
+     * montar URL nenhuma a partir de streamId. */
+    private fun com.meuapp.iptvplayer.util.WatchHistoryItem.toLiveStream() = LiveStream(
+        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        categoryId = null, epgChannelId = null, directStreamUrl = streamUrl
+    )
+
+    private fun com.meuapp.iptvplayer.util.FavoriteItem.toLiveStream() = LiveStream(
+        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        categoryId = null, epgChannelId = null, directStreamUrl = streamUrl
+    )
 
     private fun displayChannels(channels: List<LiveStream>, categoryName: String) {
         // Sempre lista vertical (uma linha por canal), não grade.

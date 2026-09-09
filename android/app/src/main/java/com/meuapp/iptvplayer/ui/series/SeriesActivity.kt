@@ -20,12 +20,22 @@ import kotlinx.coroutines.launch
 
 class SeriesActivity : AppCompatActivity() {
 
+    companion object {
+        private const val CATEGORY_RECENT = "__recent__"
+        private const val CATEGORY_FAVORITES = "__favorites__"
+    }
+
     private lateinit var binding: ActivitySeriesBinding
     private val repository by lazy { XtreamRepository(this) }
     private val renciaRepository = RenciaRepository()
     private lateinit var sidebarAdapter: CategorySidebarAdapter
     private lateinit var gridAdapter: SeriesAdapter
     private var selectedPosterUrl: String? = null
+    // "Recém Assistidos" guarda EPISÓDIOS específicos (não a série toda) --
+    // esse mapa liga o seriesId "de mentirinha" desses itens ao link de
+    // reprodução de verdade, pra tocar direto em vez de abrir a tela de
+    // temporadas/episódios (que não faz sentido pra um episódio avulso).
+    private val recentEpisodePlayback = mutableMapOf<Int, com.meuapp.iptvplayer.util.WatchHistoryItem>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,11 +66,18 @@ class SeriesActivity : AppCompatActivity() {
         gridAdapter = SeriesAdapter(
             lifecycleScope = lifecycleScope,
             onClick = { series ->
-                startActivity(Intent(this, SeriesDetailActivity::class.java).apply {
-                    putExtra(SeriesDetailActivity.EXTRA_SERIES_ID, series.seriesId)
-                    putExtra(SeriesDetailActivity.EXTRA_SERIES_NAME, series.name)
-                    putExtra(SeriesDetailActivity.EXTRA_SERIES_COVER, series.cover)
-                })
+                // Item de "Recém Assistidos" (episódio avulso) -- toca
+                // direto em vez de abrir a tela de temporadas/episódios.
+                val recentItem = recentEpisodePlayback[series.seriesId]
+                if (recentItem != null) {
+                    playDirect(recentItem)
+                } else {
+                    startActivity(Intent(this, SeriesDetailActivity::class.java).apply {
+                        putExtra(SeriesDetailActivity.EXTRA_SERIES_ID, series.seriesId)
+                        putExtra(SeriesDetailActivity.EXTRA_SERIES_NAME, series.name)
+                        putExtra(SeriesDetailActivity.EXTRA_SERIES_COVER, series.cover)
+                    })
+                }
             },
             onFocused = { series ->
                 selectedPosterUrl = series.cover
@@ -87,7 +104,10 @@ class SeriesActivity : AppCompatActivity() {
         // até essa checagem terminar.
         lifecycleScope.launch {
             repository.getSeriesCategories(session)
-                .onSuccess { sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(it)) }
+                .onSuccess { categories ->
+                    val allCategories = pinnedCategories() + categories
+                    sidebarAdapter.submitList(com.meuapp.iptvplayer.util.AdultContentGuard.sortWithAdultLast(allCategories))
+                }
                 .onFailure {
                     if (it !is kotlinx.coroutines.CancellationException) {
                         binding.toolbar.tvSubtitle.text = "Não foi possível carregar categorias"
@@ -104,10 +124,52 @@ class SeriesActivity : AppCompatActivity() {
         }
     }
 
+    /** Duas categorias fixas no topo, feitas de Favoritos e Histórico
+     * (guardados localmente no aparelho, não vêm da lista do provedor). */
+    private fun pinnedCategories(): List<com.meuapp.iptvplayer.data.model.Category> = listOf(
+        com.meuapp.iptvplayer.data.model.Category(categoryId = CATEGORY_RECENT, categoryName = "Recém Assistidos"),
+        com.meuapp.iptvplayer.data.model.Category(categoryId = CATEGORY_FAVORITES, categoryName = "Favoritos")
+    )
+
     private fun loadSeries(categoryId: String, categoryName: String) {
         val session = SessionStore.getSavedSession(this) ?: return
         binding.toolbar.tvSubtitle.text = "$categoryName · carregando séries…"
         setLoading(true)
+        recentEpisodePlayback.clear()
+        if (categoryId == CATEGORY_FAVORITES) {
+            val favorites = com.meuapp.iptvplayer.util.FavoritesStore.readAll(this)
+                .filter { it.kind == "series" && it.seriesId != null }
+                .map { fav ->
+                    com.meuapp.iptvplayer.data.model.SeriesItem(
+                        num = 0, name = fav.title, seriesId = fav.seriesId!!,
+                        cover = fav.seriesCover ?: fav.posterUrl, categoryId = categoryName,
+                        rating = null, lastModified = null
+                    )
+                }
+            gridAdapter.submitList(favorites)
+            binding.toolbar.tvSubtitle.text = "$categoryName · ${favorites.size} séries"
+            setLoading(false)
+            return
+        }
+        if (categoryId == CATEGORY_RECENT) {
+            // Cada item aqui é um EPISÓDIO específico -- usa um seriesId
+            // "de mentirinha" (negativo, nunca colide com um de verdade)
+            // só pra reaproveitar a mesma grade/adapter de sempre.
+            val history = com.meuapp.iptvplayer.util.WatchHistoryStore.readAll(this).filter { it.kind == "series" }
+            val items = history.mapIndexed { index, item ->
+                val fakeId = -(index + 1)
+                recentEpisodePlayback[fakeId] = item
+                com.meuapp.iptvplayer.data.model.SeriesItem(
+                    num = 0, name = item.title, seriesId = fakeId,
+                    cover = item.posterUrl, categoryId = categoryName,
+                    rating = null, lastModified = null
+                )
+            }
+            gridAdapter.submitList(items)
+            binding.toolbar.tvSubtitle.text = "$categoryName · ${items.size} episódios"
+            setLoading(false)
+            return
+        }
         lifecycleScope.launch {
             repository.getSeries(session, categoryId)
                 .onSuccess { series ->
@@ -127,6 +189,15 @@ class SeriesActivity : AppCompatActivity() {
                 }
             setLoading(false)
         }
+    }
+
+    /** Toca direto um episódio de "Recém Assistidos" -- já tem o link de
+     * reprodução pronto, não precisa passar pela tela de temporadas. */
+    private fun playDirect(item: com.meuapp.iptvplayer.util.WatchHistoryItem) {
+        startActivity(Intent(this, com.meuapp.iptvplayer.ui.player.PlayerActivity::class.java).apply {
+            putExtra(com.meuapp.iptvplayer.ui.player.PlayerActivity.EXTRA_STREAM_URL, item.streamUrl)
+            putExtra(com.meuapp.iptvplayer.ui.player.PlayerActivity.EXTRA_CHANNEL_NAME, item.subtitle ?: item.title)
+        })
     }
 
     override fun onResume() {

@@ -273,6 +273,12 @@ class LoginActivity : AppCompatActivity() {
                         runOnUiThread { updateProgress(percent) }
                     }
                 }
+                // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo cada etapa do
+                // primeiro download/processamento levou -- será removido
+                // assim que não for mais necessário.
+                com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
+                    android.widget.Toast.makeText(this@LoginActivity, it, android.widget.Toast.LENGTH_LONG).show()
+                }
             } else {
                 binding.tvLoadingStatus.text = "Carregando categorias…"
                 updateProgress(20)

@@ -1224,7 +1224,12 @@ class XtreamRepository(context: Context? = null) {
                 // montar LiveStream nenhum.
                 val cacheKey = cacheKeyFor(session)
                 val idx = ensureLiveFast(session)
-                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
+                // SEM ordenar em ordem alfabética de propósito -- mantém a
+                // ordem NATURAL da playlist (a ordem que as categorias
+                // aparecem no arquivo M3U original), que é como o
+                // provedor organizou de verdade (grupos relacionados perto
+                // um do outro). Ordem alfabética embaralhava isso.
+                idx.keys.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
@@ -1287,7 +1292,7 @@ class XtreamRepository(context: Context? = null) {
             val m3uResult = runCatching {
                 // Caminho RÁPIDO: lê só o arquivo de Filmes.
                 val idx = ensureVodFast(session)
-                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
+                idx.keys.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }
@@ -1333,7 +1338,7 @@ class XtreamRepository(context: Context? = null) {
                 // Caminho RÁPIDO: lê só o arquivo de Séries (que já traz a
                 // tabela de Favoritos junto).
                 val idx = ensureSeriesFast(session)
-                idx.keys.sortedBy { it.lowercase() }.map { Category(categoryId = it, categoryName = it) }
+                idx.keys.map { Category(categoryId = it, categoryName = it) }
             }
             m3uResult.getOrNull()?.let { if (it.isNotEmpty()) return@runCatching it }
         }

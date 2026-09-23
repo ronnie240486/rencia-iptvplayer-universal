@@ -304,7 +304,17 @@ class PlayerActivity : AppCompatActivity() {
                     // mesmo com o painel já tendo trocado do lado dele.
                     val renciaRepository = com.meuapp.iptvplayer.data.api.RenciaRepository()
                     renciaRepository.authenticateByMac(session.mac).getOrNull()?.let { updatedSession ->
-                        com.meuapp.iptvplayer.data.api.XtreamRepository(this@PlayerActivity).clearM3uCache(session)
+                        // BUG CRÍTICO corrigido: apagar arquivo em disco
+                        // (cache da lista, que pode passar de 50MB) direto
+                        // na thread principal -- aqui é ainda mais grave
+                        // que em Ajustes, porque acontece NO MEIO da
+                        // reprodução ao vivo, podendo travar a tela do
+                        // player e disparar ANR ("app não está
+                        // respondendo") justamente quando o painel troca
+                        // de lista automaticamente por trás.
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.meuapp.iptvplayer.data.api.XtreamRepository(this@PlayerActivity).clearM3uCache(session)
+                        }
                         SessionStore.saveSession(this@PlayerActivity, updatedSession)
                     }
                 }

@@ -1142,13 +1142,22 @@ class XtreamRepository(context: Context? = null) {
         // recalculada do ZERO a cada candidato testado (até 4x, incluindo
         // a fonte universal, que sozinha já tem dezenas de milhares de
         // entradas). Numa lista grande, isso multiplicava um trabalho já
-        // pesado por até 4 -- exatamente o que fazia a caixa de
-        // "PROGRAMAÇÃO" ficar em "Buscando programação…" por tempo
-        // demais (na prática, parecendo travado pra sempre). Calculado
-        // UMA vez só aqui fora, antes de testar qualquer candidato.
-        val namesNeeded = channels.mapNotNull { ch ->
-            XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
-        }.toSet()
+        // pesado por até 4. Calculado UMA vez só aqui fora, antes de
+        // testar qualquer candidato.
+        // BUG CRÍTICO corrigido (2ª rodada): ao tirar esse cálculo de
+        // dentro do laço, ele também saiu do withContext(Dispatchers.IO)
+        // que existia lá dentro -- passou a rodar direto na THREAD
+        // PRINCIPAL (essa função suspend roda na thread de quem chamou,
+        // que aqui é a Main). Numa lista com milhares de canais, isso
+        // travava a tela inteira por tempo suficiente pra virar "app não
+        // está respondendo" (ANR) -- exatamente o travamento ao trocar de
+        // categoria. Precisa desse withContext aqui TAMBÉM, não só lá
+        // dentro do laço.
+        val namesNeeded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            channels.mapNotNull { ch ->
+                XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
+            }.toSet()
+        }
 
         for (epgUrl in candidates) {
             // Guarda em cache mesmo quando o resultado vem vazio (sem

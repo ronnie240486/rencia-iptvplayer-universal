@@ -15,7 +15,11 @@ import java.util.concurrent.TimeUnit
 
 class RenciaRepository {
     companion object {
-        const val BASE_URL = "https://renciaapp.manus.space/"
+        // Painel migrou do Manus pro Railway -- o domínio antigo
+        // (renciaapp.manus.space) não fala mais a API de verdade pra
+        // apps novos, devolvendo resposta inválida (nem JSON) em vez de
+        // erro claro. Mesmo domínio já usado no Fusion e no Maximus.
+        const val BASE_URL = "https://renciaapp-production.up.railway.app/"
         // "supremus" é o app_id oficial pra esse app (Supreme) no
         // documento de integração universal do painel -- id errado
         // ("rencia") fazia o app cair sempre nas rotas de compatibilidade

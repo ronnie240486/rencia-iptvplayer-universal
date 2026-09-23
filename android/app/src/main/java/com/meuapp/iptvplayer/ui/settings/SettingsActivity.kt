@@ -177,6 +177,7 @@ class SettingsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             renciaRepository.checkForUpdate(mac)
                 .onSuccess { update ->
+                    if (isFinishing || isDestroyed) return@onSuccess
                     if (update.updateAvailable) {
                         val message = buildString {
                             append("Versão nova disponível")
@@ -214,6 +215,13 @@ class SettingsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             renciaRepository.listAvailablePlaylists(mac)
                 .onSuccess { options ->
+                    // BUG corrigido: se a tela já tivesse sido fechada
+                    // enquanto essa busca ainda estava no ar (usuário saiu
+                    // de Ajustes rápido), tentar abrir um AlertDialog aqui
+                    // derrubava o app (WindowManager.BadTokenException --
+                    // "dá pau, fecha o aplicativo"). Sem isso pra proteger,
+                    // era só uma questão de tempo pra acontecer.
+                    if (isFinishing || isDestroyed) return@onSuccess
                     if (options.size == 1) {
                         showInfo("Trocar de lista", "Só existe uma lista cadastrada para este MAC (${options.first().label}).")
                         return@onSuccess
@@ -228,19 +236,50 @@ class SettingsActivity : AppCompatActivity() {
                         .show()
                 }
                 .onFailure { error ->
+                    if (isFinishing || isDestroyed) return@onFailure
                     showInfo("Trocar de lista", error.message ?: "Não foi possível buscar as listas.")
                 }
         }
     }
 
+    /** Troca pra playlist escolhida E baixa ela por completo agora mesmo --
+     * antes só trocava a URL guardada na sessão, sem apagar a lista ANTIGA
+     * do cache nem baixar a nova. Como o cache é por MAC (não por URL de
+     * playlist), o app continuava mostrando a lista antiga inteira depois
+     * de "trocar de lista", como se nada tivesse mudado de verdade. Agora
+     * apaga o cache e baixa a lista nova, igual "Atualizar conteúdo" já
+     * fazia (mesmo padrão, só que pra playlist escolhida manualmente). */
     private fun applyPlaylist(mac: String, option: RenciaRepository.PlaylistOption) {
+        Toast.makeText(this, "Trocando para \"${option.label}\"…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             renciaRepository.switchToPlaylist(mac, option.playlistUrl)
                 .onSuccess { session ->
+                    val xtreamRepository = com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity)
+                    xtreamRepository.clearM3uCache(session)
                     SessionStore.saveSession(this@SettingsActivity, session)
-                    Toast.makeText(this@SettingsActivity, "Lista alterada: ${option.label}", Toast.LENGTH_LONG).show()
+                    if (!isFinishing && !isDestroyed) {
+                        Toast.makeText(this@SettingsActivity, "Baixando \"${option.label}\" por completo…", Toast.LENGTH_LONG).show()
+                    }
+                    // Baixa a lista nova JÁ, igual acontece na primeira
+                    // ativação -- sem isso, só ia baixar de verdade na
+                    // próxima vez que Canais/Filmes fossem abertos, o que
+                    // parecia (pro usuário) que a troca não tinha feito
+                    // nada.
+                    val downloadResult = runCatching {
+                        xtreamRepository.preloadPlaylistWithProgress(session) { _, _ -> }
+                    }
+                    if (isFinishing || isDestroyed) return@onSuccess
+                    if (downloadResult.isSuccess) {
+                        Toast.makeText(this@SettingsActivity, "Lista alterada: ${option.label}", Toast.LENGTH_LONG).show()
+                    } else {
+                        showInfo(
+                            "Trocar de lista",
+                            "A lista foi trocada, mas não deu pra baixar ela agora (${downloadResult.exceptionOrNull()?.message ?: "sem conexão"}). Vai tentar de novo sozinha na próxima vez que abrir Canais/Filmes."
+                        )
+                    }
                 }
                 .onFailure { error ->
+                    if (isFinishing || isDestroyed) return@onFailure
                     showInfo("Trocar de lista", error.message ?: "Não foi possível trocar de lista.")
                 }
         }
@@ -303,6 +342,12 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showInfo(title: String, message: String) {
+        // Mesma proteção contra "dá pau, fecha o aplicativo" -- todo
+        // diálogo desse app que aparece depois de uma chamada de rede
+        // (Verificar atualização, Diagnóstico, Trocar de lista...) corre
+        // esse mesmo risco se a tela já tiver sido fechada nesse meio
+        // tempo, e showInfo é usado por quase todos eles.
+        if (isFinishing || isDestroyed) return
         AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage(message)

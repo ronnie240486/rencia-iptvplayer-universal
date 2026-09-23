@@ -14,7 +14,12 @@ data class FavoriteItem(
     val addedAt: Long,
     // Só preenchido pra canais ao vivo -- sem isso, favoritos de canal não
     // conseguiam buscar a programação (EPG) desse canal depois.
-    val epgChannelId: String? = null
+    val epgChannelId: String? = null,
+    // Mesma correção do WatchHistoryItem: guarda o stream_id real da
+    // Xtream (0 = não tem, veio de M3U puro), pra favoritos de canal
+    // também poderem buscar a programação AO VIVO (get_short_epg) em vez
+    // de sempre cair no chute de um guia XMLTV externo.
+    val streamId: Int = 0
 )
 
 /** Favoritos de verdade -- canais, filmes e séries, guardados localmente.
@@ -70,6 +75,7 @@ object FavoritesStore {
         put("seriesCover", item.seriesCover ?: "")
         put("addedAt", item.addedAt)
         put("epgChannelId", item.epgChannelId ?: "")
+        put("streamId", item.streamId)
     }
 
     private fun fromJson(obj: JSONObject?): FavoriteItem? {
@@ -83,7 +89,8 @@ object FavoritesStore {
                 seriesId = obj.optInt("seriesId", -1).takeIf { it != -1 },
                 seriesCover = obj.optString("seriesCover").ifBlank { null },
                 addedAt = obj.optLong("addedAt"),
-                epgChannelId = obj.optString("epgChannelId").ifBlank { null }
+                epgChannelId = obj.optString("epgChannelId").ifBlank { null },
+                streamId = obj.optInt("streamId", 0)
             )
         }.getOrNull()
     }

@@ -28,11 +28,27 @@ jobs:
       # tentava baixar um novo do zero -- e esse download vem falhando
       # toda vez, travando o build sempre no mesmo passo. Usar o SDK que
       # já vem pronto no runner evita esse download problemático.
+      - name: Localizar sdkmanager do SDK pré-instalado
+        # Acha o binário de verdade em vez de supor o caminho exato --
+        # "sdkmanager: command not found" antes disso porque a pasta do
+        # cmdline-tools não tava no PATH desse shell (o PATH de outra
+        # action/step não passa automaticamente pra cá).
+        run: |
+          SDKMANAGER_PATH=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$SDKMANAGER_PATH" ]; then
+            echo "sdkmanager não encontrado no SDK pré-instalado do runner" >&2
+            exit 1
+          fi
+          echo "Usando: $SDKMANAGER_PATH"
+          echo "SDKMANAGER=$SDKMANAGER_PATH" >> "$GITHUB_ENV"
+
       - name: Aceitar licenças do Android SDK
-        run: yes | sdkmanager --licenses > /dev/null || true
+        run: |
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
 
       - name: Instalar plataforma e build-tools necessários
-        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        run: |
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Dar permissão ao gradlew
         run: chmod +x gradlew

@@ -34,7 +34,13 @@ data class Session(
     val clientPassword: String? = null,
     val layoutId: String? = null,
     val playlistUrl: String? = null,
-    val activeListNumber: Int = 1
+    val activeListNumber: Int = 1,
+    // URL do guia de programação (EPG) cadastrada no painel pra esse
+    // cliente (campo "URL EPG (opcional)" em Editar Usuário) -- quando
+    // presente, é mais confiável que qualquer adivinhação (playlist,
+    // xmltv.php no servidor Xtream), porque foi o próprio painel que
+    // confirmou que é essa.
+    val epgUrl: String? = null
 )
 
 class XtreamRepository(context: Context? = null) {
@@ -1113,17 +1119,22 @@ class XtreamRepository(context: Context? = null) {
         val tvgIds = channels.mapNotNull { it.tvgId?.lowercase() }.toSet()
         if (tvgIds.isEmpty()) return emptyMap()
 
-        // 1) URL declarada no cabeçalho da própria playlist M3U (padrão
-        //    mais comum). 2) Se não tiver, painéis Xtream Codes quase
-        //    sempre também expõem o guia num endereço fixo (xmltv.php),
-        //    mesmo sem avisar isso na playlist. 3) Por último, tenta um
-        //    guia universal de canais brasileiros (iptv-epg.org) -- cobre
-        //    canais comuns quando nem a playlist nem o painel têm guia
-        //    próprio nenhum.
+        // 0) URL de EPG cadastrada MANUALMENTE no painel pra esse cliente
+        //    (campo "URL EPG (opcional)" em Editar Usuário) -- quando
+        //    existe, é a mais confiável de todas (foi o próprio painel
+        //    que confirmou), então vem PRIMEIRO, antes de qualquer
+        //    adivinhação. 1) Se não tiver, URL declarada no cabeçalho da
+        //    própria playlist M3U (padrão mais comum). 2) Se também não
+        //    tiver, painéis Xtream Codes quase sempre também expõem o
+        //    guia num endereço fixo (xmltv.php), mesmo sem avisar isso na
+        //    playlist. 3) Por último, tenta um guia universal de canais
+        //    brasileiros (iptv-epg.org) -- cobre canais comuns quando nem
+        //    a playlist nem o painel têm guia próprio nenhum.
+        val panelUrl = session.epgUrl?.takeIf { it.isNotBlank() }
         val declaredUrl = epgUrlCache[cacheKey]
         val fallbackUrl = "${normalizeBase(session.serverUrl)}/xmltv.php?username=${session.username}&password=${session.password}"
         val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
-        val candidates = listOfNotNull(declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
+        val candidates = listOfNotNull(panelUrl, declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
         for (epgUrl in candidates) {
             // Guarda em cache mesmo quando o resultado vem vazio (sem

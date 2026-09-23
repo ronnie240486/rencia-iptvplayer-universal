@@ -285,12 +285,17 @@ class ChannelListActivity : AppCompatActivity() {
      * já tem o link de reprodução pronto (directStreamUrl), não precisa
      * montar URL nenhuma a partir de streamId. */
     private fun com.meuapp.iptvplayer.util.WatchHistoryItem.toLiveStream() = LiveStream(
-        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        // BUG CRÍTICO corrigido: usava streamId = 0 fixo aqui, jogando fora
+        // o ID real do canal (quando existia) e forçando até canal com EPG
+        // ao vivo funcionando (get_short_epg) a cair no chute de guia XMLTV
+        // externo assim que aparecia em "Recém Assistidos". Ver loadMiniGuide.
+        num = 0, name = title, streamId = streamId, streamIcon = posterUrl,
         categoryId = null, epgChannelId = epgChannelId, directStreamUrl = streamUrl
     )
 
     private fun com.meuapp.iptvplayer.util.FavoriteItem.toLiveStream() = LiveStream(
-        num = 0, name = title, streamId = 0, streamIcon = posterUrl,
+        // Mesma correção acima, pra Favoritos.
+        num = 0, name = title, streamId = streamId, streamIcon = posterUrl,
         categoryId = null, epgChannelId = epgChannelId, directStreamUrl = streamUrl
     )
 
@@ -334,7 +339,8 @@ class ChannelListActivity : AppCompatActivity() {
                 posterUrl = channel.streamIcon,
                 streamUrl = streamUrl,
                 watchedAt = System.currentTimeMillis(),
-                epgChannelId = channel.epgChannelId
+                epgChannelId = channel.epgChannelId,
+                streamId = channel.streamId
             )
         )
         // Se já é esse mesmo canal tocando (ex: voltou da tela cheia),
@@ -395,7 +401,19 @@ class ChannelListActivity : AppCompatActivity() {
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {
-                if (channel.directStreamUrl != null) {
+                // BUG CRÍTICO corrigido: antes só olhava se tinha
+                // directStreamUrl pra decidir o caminho -- mas canais
+                // vindos de Recém Assistidos/Favoritos SEMPRE têm
+                // directStreamUrl preenchido (pra tocar direto), mesmo
+                // quando são canais Xtream normais com um stream_id de
+                // verdade. Isso jogava até canal com EPG ao vivo
+                // funcionando pro caminho de adivinhar guia XMLTV externo.
+                // Agora: sempre que existir um streamId de verdade (> 0),
+                // pergunta AO VIVO pra Xtream (get_short_epg) -- igual
+                // Fusion/Maximus/MaximusPlayerNativeExact sempre fazem. Só
+                // cai no guia XMLTV (painel/playlist/xmltv.php/universal)
+                // quando o canal realmente não tem ID nenhum (M3U puro).
+                if (channel.streamId <= 0 && channel.directStreamUrl != null) {
                     // Limite de tempo pra essa busca nunca ficar "pendurada"
                     // sem mostrar nada (nem a faixa, nem o aviso) -- se
                     // demorar demais (rede lenta tentando as 4 fontes de
@@ -490,7 +508,8 @@ class ChannelListActivity : AppCompatActivity() {
                 posterUrl = channel.streamIcon,
                 streamUrl = streamUrl,
                 watchedAt = System.currentTimeMillis(),
-                epgChannelId = channel.epgChannelId
+                epgChannelId = channel.epgChannelId,
+                streamId = channel.streamId
             )
         )
         lifecycleScope.launch {

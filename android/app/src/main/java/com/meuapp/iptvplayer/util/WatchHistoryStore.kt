@@ -15,7 +15,16 @@ data class WatchHistoryItem(
     val watchedAt: Long,
     // Só preenchido pra canais ao vivo -- sem isso, "Recém Assistidos"
     // não conseguia buscar a programação (EPG) desse canal depois.
-    val epgChannelId: String? = null
+    val epgChannelId: String? = null,
+    // BUG CRÍTICO corrigido: antes esse ID real do canal (o "stream_id" da
+    // Xtream) era sempre descartado ao gravar em Recém Assistidos, e o
+    // canal reaparecia com streamId=0 -- isso forçava até canais NORMAIS
+    // (com EPG ao vivo via get_short_epg funcionando perfeitamente, igual
+    // os outros apps sempre usam) a cair no caminho de ADIVINHAR um guia
+    // XMLTV externo, que é bem menos confiável. Guardando o ID de verdade
+    // aqui, "Recém Assistidos"/Favoritos voltam a buscar a programação AO
+    // VIVO na Xtream sempre que o canal tiver um ID real (0 = não tem).
+    val streamId: Int = 0
 )
 
 /** Guarda os últimos itens assistidos (SharedPreferences, formato JSON
@@ -59,6 +68,7 @@ object WatchHistoryStore {
         put("streamUrl", item.streamUrl)
         put("watchedAt", item.watchedAt)
         put("epgChannelId", item.epgChannelId ?: "")
+        put("streamId", item.streamId)
     }
 
     private fun fromJson(obj: JSONObject?): WatchHistoryItem? {
@@ -71,7 +81,8 @@ object WatchHistoryStore {
                 posterUrl = obj.optString("posterUrl").ifBlank { null },
                 streamUrl = obj.getString("streamUrl"),
                 watchedAt = obj.optLong("watchedAt"),
-                epgChannelId = obj.optString("epgChannelId").ifBlank { null }
+                epgChannelId = obj.optString("epgChannelId").ifBlank { null },
+                streamId = obj.optInt("streamId", 0)
             )
         }.getOrNull()
     }

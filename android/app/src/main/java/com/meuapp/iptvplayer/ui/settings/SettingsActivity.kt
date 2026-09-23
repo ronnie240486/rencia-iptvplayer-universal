@@ -151,8 +151,19 @@ class SettingsActivity : AppCompatActivity() {
             // reativando o MAC, o app continuava usando a lista antiga
             // guardada (a playlist geralmente é a mesma URL, então o cache
             // "batia" de novo e nada mudava de verdade).
-            SessionStore.getSavedSession(this@SettingsActivity)?.let {
-                com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity).clearM3uCache(it)
+            // BUG CRÍTICO corrigido: isso apaga ARQUIVOS em disco (a
+            // lista M3U inteira pode passar de 50MB, ver comentário em
+            // clearM3uCache), e rodava direto na THREAD PRINCIPAL --
+            // lifecycleScope.launch usa a Main por padrão. Em aparelhos
+            // com armazenamento lento (comum em caixinhas Android TV
+            // baratas), apagar esses arquivos podia demorar o suficiente
+            // pra travar a tela inteira e disparar "app não está
+            // respondendo" (ANR) logo depois de "trocar de lista" ou
+            // "atualizar conteúdo".
+            SessionStore.getSavedSession(this@SettingsActivity)?.let { session ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity).clearM3uCache(session)
+                }
             }
             renciaRepository.authenticateByMac(mac)
                 .onSuccess { session ->
@@ -255,7 +266,14 @@ class SettingsActivity : AppCompatActivity() {
             renciaRepository.switchToPlaylist(mac, option.playlistUrl)
                 .onSuccess { session ->
                     val xtreamRepository = com.meuapp.iptvplayer.data.api.XtreamRepository(this@SettingsActivity)
-                    xtreamRepository.clearM3uCache(session)
+                    // BUG CRÍTICO corrigido: mesmo problema do
+                    // refreshContentNow -- apagar arquivo em disco na
+                    // thread principal podia travar a tela e disparar ANR
+                    // ("app não está respondendo") logo depois de trocar
+                    // de lista, num aparelho com armazenamento lento.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        xtreamRepository.clearM3uCache(session)
+                    }
                     SessionStore.saveSession(this@SettingsActivity, session)
                     if (!isFinishing && !isDestroyed) {
                         Toast.makeText(this@SettingsActivity, "Baixando \"${option.label}\" por completo…", Toast.LENGTH_LONG).show()

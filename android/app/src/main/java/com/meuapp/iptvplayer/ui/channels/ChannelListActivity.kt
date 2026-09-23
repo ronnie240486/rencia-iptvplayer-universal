@@ -398,7 +398,7 @@ class ChannelListActivity : AppCompatActivity() {
                 if (channel.directStreamUrl != null) {
                     // Limite de tempo pra essa busca nunca ficar "pendurada"
                     // sem mostrar nada (nem a faixa, nem o aviso) -- se
-                    // demorar demais (rede lenta tentando as 3 fontes de
+                    // demorar demais (rede lenta tentando as 4 fontes de
                     // guia), desiste e mostra o aviso genérico em vez de
                     // deixar a área de programação em branco pra sempre.
                     val result = kotlinx.coroutines.withTimeoutOrNull(90_000) {
@@ -457,7 +457,7 @@ class ChannelListActivity : AppCompatActivity() {
         val searchInfo = "(procurando por tvg-id=\"${diag.searchedTvgId ?: "nenhum"}\" ou nome=\"${diag.searchedNormalizedName ?: "nenhum"}\")"
         val reason = when {
             !diag.hasTvgId -> "este canal não tem um tvg-id na playlist (a lista não diz qual é o ID de programação dele)"
-            !diag.hasEpgUrlDeclared -> "nenhuma das 3 fontes de guia (playlist, xmltv.php do painel, guia universal) tem dado nenhum pra este canal $searchInfo"
+            !diag.hasEpgUrlDeclared -> "nenhuma das 4 fontes de guia (URL EPG do painel, playlist, xmltv.php do painel, guia universal) tem dado nenhum pra este canal $searchInfo"
             diag.guideChannelCount == 0 -> "o guia declarado na lista não retornou nenhum canal (pode estar fora do ar ou vazio)"
             !diag.hasMatchForThisChannel -> "o guia tem ${diag.guideChannelCount} canais, mas nenhum bate com este $searchInfo"
             else -> "sem programação futura cadastrada pra este canal agora"

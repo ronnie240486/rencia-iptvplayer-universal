@@ -349,17 +349,82 @@ class HomeActivity : AppCompatActivity() {
                 }
             }
 
-            // Comandos remotos pendentes -- so confirma o que o app
-            // realmente reconhece e executa.
+            // Comandos remotos pendentes -- executa de fato os tipos
+            // reconhecidos (mensagem, trocar lista, reiniciar, deslogar,
+            // checar atualização) e só confirma como "não suportado" os
+            // que não reconhece, em vez de ignorar tudo.
             renciaRepository.getRemoteCommands(session.mac).onSuccess { commands ->
                 commands.forEach { command ->
                     val id = command.commandId ?: command.id ?: return@forEach
-                    // Nenhum comando remoto específico está implementado
-                    // ainda -- confirma como "não executado" pra não ficar
-                    // pendente pra sempre no painel.
-                    runCatching { renciaRepository.ackRemoteCommand(session.mac, id, executed = false, resultMessage = "Comando não suportado por esta versão do app") }
+                    val (executed, resultMessage) = applyRemoteCommand(command, session)
+                    runCatching { renciaRepository.ackRemoteCommand(session.mac, id, executed = executed, resultMessage = resultMessage) }
                 }
             }
+        }
+    }
+
+    /** Executa de verdade um comando mandado pelo painel remoto -- antes
+     * disso, todo comando só era confirmado como "não suportado" sem
+     * nunca ser executado. Cada ramo só devolve executed=true quando o
+     * app realmente fez a ação (confirmação honesta pro painel). */
+    private suspend fun applyRemoteCommand(
+        command: com.meuapp.iptvplayer.data.model.RemoteCommand,
+        session: com.meuapp.iptvplayer.data.api.Session
+    ): Pair<Boolean, String> {
+        val type = command.type?.trim()?.lowercase().orEmpty()
+        val payload = command.payload?.trim().orEmpty()
+        return when (type) {
+            "show_message", "message", "mensagem" -> {
+                if (payload.isBlank()) {
+                    false to "Mensagem vazia"
+                } else {
+                    runOnUiThread { Toast.makeText(this, payload, Toast.LENGTH_LONG).show() }
+                    true to "Mensagem exibida"
+                }
+            }
+            "switch_playlist", "trocar_lista", "troca_lista" -> {
+                if (payload.isBlank()) {
+                    false to "Nenhuma lista informada no comando"
+                } else {
+                    renciaRepository.switchToPlaylist(session.mac, payload).fold(
+                        onSuccess = { updated ->
+                            SessionStore.saveSession(this, updated)
+                            runOnUiThread {
+                                Toast.makeText(this, "Lista trocada pelo painel", Toast.LENGTH_LONG).show()
+                                recreate()
+                            }
+                            true to "Lista trocada com sucesso"
+                        },
+                        onFailure = { false to "Falha ao trocar de lista: ${it.message}" }
+                    )
+                }
+            }
+            "restart_app", "reiniciar", "reload", "recarregar" -> {
+                runOnUiThread { recreate() }
+                true to "App recarregado"
+            }
+            "logout", "force_logout", "deslogar" -> {
+                runOnUiThread {
+                    SessionStore.clear(this)
+                    startActivity(Intent(this, LoginActivity::class.java))
+                    finish()
+                }
+                true to "Sessão encerrada"
+            }
+            "check_update", "checar_atualizacao", "verificar_atualizacao" -> {
+                renciaRepository.checkForUpdate(session.mac).fold(
+                    onSuccess = { update ->
+                        if (update.updateAvailable) {
+                            runOnUiThread {
+                                Toast.makeText(this, "Atualização disponível: ${update.version ?: ""}".trim(), Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        true to "Atualização verificada"
+                    },
+                    onFailure = { false to "Falha ao checar atualização: ${it.message}" }
+                )
+            }
+            else -> false to "Comando não suportado por esta versão do app"
         }
     }
 

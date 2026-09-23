@@ -7,11 +7,11 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.lifecycle.LifecycleCoroutineScope
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.meuapp.iptvplayer.data.api.TmdbRepository
 import com.meuapp.iptvplayer.data.model.SeriesItem
 import com.meuapp.iptvplayer.databinding.ItemPosterBinding
 import com.meuapp.iptvplayer.databinding.ItemPosterHorizontalBinding
+import com.meuapp.iptvplayer.util.loadIconSafely
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -53,12 +53,12 @@ class SeriesAdapter(
         // esperar rede) -- muitas vezes é só uma logo genérica repetida em
         // todo episódio, então busca o pôster oficial no TMDB em seguida e
         // troca pra ele assim que chegar, se encontrar.
-        holder.ivPoster.load(item.cover) { crossfade(true) }
+        holder.ivPoster.loadIconSafely(item.cover, crossfade = true)
         holder.tmdbJob?.cancel()
         holder.tmdbJob = lifecycleScope.launch {
             val posterUrl = tmdbRepository.findSeriesPosterUrl(item.name)
             if (posterUrl != null && holder.bindingAdapterPosition == position) {
-                holder.ivPoster.load(posterUrl) { crossfade(true) }
+                holder.ivPoster.loadIconSafely(posterUrl, crossfade = true)
             }
         }
         holder.itemView.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(item) }

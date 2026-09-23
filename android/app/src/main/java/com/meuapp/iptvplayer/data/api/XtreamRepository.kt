@@ -1156,7 +1156,37 @@ class XtreamRepository(context: Context? = null) {
             // (ANR) que aparecia na tela de Canais um pouco depois de abrir,
             // exatamente o tempo de baixar+processar esse guia.
             val parsed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { XmlTvParser.parse(xml, tvgIds) }.getOrDefault(emptyMap())
+                runCatching {
+                    // BUG CRÍTICO corrigido: antes só casava canal por
+                    // tvg-id EXATO entre playlist e guia -- vários painéis
+                    // (confirmado com o clipper.lat) colocam o próprio NOME
+                    // do canal como tvg-id na playlist ("Cartoon Network
+                    // HD"), que nunca bate com o id curto que o guia usa de
+                    // verdade por trás (ex: "cartoonnetwork.br"). O guia já
+                    // traz esse mapeamento nome -> id em <channel
+                    // id><display-name> (parseChannelNames), só que nunca
+                    // era usado pra resolver esse caso -- por isso guias com
+                    // CENTENAS de canais (inclusive o certo) davam "nenhum
+                    // bate com este" mesmo assim.
+                    val nameToGuideId = XmlTvParser.parseChannelNames(xml)
+                    val namesNeeded = channels.mapNotNull { ch ->
+                        XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
+                    }.toSet()
+                    val idsFromNames = namesNeeded.mapNotNull { nameToGuideId[it] }.map { it.lowercase() }.toSet()
+                    val byId = XmlTvParser.parse(xml, tvgIds + idsFromNames)
+                    // Espelha cada canal resolvido só por NOME também sob a
+                    // chave do nome normalizado -- assim getEpgFromPlaylist/
+                    // diagnoseEpg acham a programação tanto procurando pelo
+                    // tvg-id quanto pelo nome, sem precisar saber qual dos
+                    // dois foi o que realmente bateu no guia.
+                    val merged: MutableMap<String, List<XmlTvProgramme>> = byId.toMutableMap()
+                    for ((normName, guideId) in nameToGuideId) {
+                        if (normName in namesNeeded) {
+                            byId[guideId.lowercase()]?.let { merged.putIfAbsent(normName, it) }
+                        }
+                    }
+                    merged as Map<String, List<XmlTvProgramme>>
+                }.getOrDefault(emptyMap())
             }
             xmlTvCache[epgUrl] = parsed
             if (parsed.isNotEmpty()) {
@@ -1179,10 +1209,21 @@ class XtreamRepository(context: Context? = null) {
      * XMLTV da playlist -- usado quando o canal veio de M3U (sem stream_id
      * de verdade pra usar o get_short_epg da API Xtream). */
     suspend fun getEpgFromPlaylist(session: Session, tvgId: String?, channelName: String? = null): Result<List<XmlTvProgramme>> = runCatching {
-        if (tvgId.isNullOrBlank()) return@runCatching emptyList()
+        // BUG CRÍTICO corrigido: recebia channelName mas NUNCA usava --
+        // só tentava tvg-id, e desistia na hora se ele não batesse com o
+        // guia (o caso mais comum, ver fetchXmlTvGuide). Agora tenta por
+        // tvg-id primeiro e, se não achar nada, tenta pelo nome
+        // normalizado do canal (que fetchXmlTvGuide já deixa disponível
+        // como chave também, quando consegue resolver via display-name).
+        val normalizedName = channelName
+            ?.let { XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(it)) }
+            ?.takeIf { it.isNotBlank() }
+        if (tvgId.isNullOrBlank() && normalizedName == null) return@runCatching emptyList()
         val guide = fetchXmlTvGuide(session)
         val now = System.currentTimeMillis()
-        guide[tvgId.lowercase()].orEmpty()
+        val listings = tvgId?.takeIf { it.isNotBlank() }?.let { guide[it.lowercase()] }?.takeIf { it.isNotEmpty() }
+            ?: normalizedName?.let { guide[it] }
+        listings.orEmpty()
             .filter { it.stopMillis >= now }
             .sortedBy { it.startMillis }
             .take(6)

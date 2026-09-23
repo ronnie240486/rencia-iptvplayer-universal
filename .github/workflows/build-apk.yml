@@ -21,8 +21,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+      # O runner do GitHub já vem com o Android SDK pré-instalado (em
+      # /usr/local/lib/android/sdk, com ANDROID_HOME/ANDROID_SDK_ROOT já
+      # configurados). A action "android-actions/setup-android@v3"
+      # descartava esse SDK pré-instalado (dizendo "wrong version") e
+      # tentava baixar um novo do zero -- e esse download vem falhando
+      # toda vez, travando o build sempre no mesmo passo. Usar o SDK que
+      # já vem pronto no runner evita esse download problemático.
+      - name: Aceitar licenças do Android SDK
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Instalar plataforma e build-tools necessários
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Dar permissão ao gradlew
         run: chmod +x gradlew

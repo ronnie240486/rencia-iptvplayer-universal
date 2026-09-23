@@ -105,7 +105,7 @@ class RenciaRepository {
             val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
                 ?: fetchFallbackPlaylistUrl(mac)
                 ?: error("Nenhuma playlist foi liberada para este MAC.")
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
         }
 
         // Rota oficial não respondeu -- cai pra rota antiga de
@@ -122,7 +122,7 @@ class RenciaRepository {
             ?: fetchFallbackPlaylistUrl(mac)
             ?: error("Nenhuma playlist foi liberada para este MAC.")
 
-        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate, epgUrl = deviceCheck.urlEpg)
     }
 
     /** Alguns dispositivos só têm a playlist cadastrada na fonte alternativa
@@ -149,6 +149,7 @@ class RenciaRepository {
         status: String?,
         expirationDate: String?,
         activeListNumber: Int = 1,
+        epgUrl: String? = null,
     ): Session {
         val url = playlistUrl.toHttpUrlOrNull()
             ?: error("A playlist recebida não possui uma URL válida.")
@@ -172,7 +173,8 @@ class RenciaRepository {
             clientPassword = null,
             layoutId = "classic",
             playlistUrl = playlistUrl,
-            activeListNumber = activeListNumber
+            activeListNumber = activeListNumber,
+            epgUrl = epgUrl?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -198,7 +200,7 @@ class RenciaRepository {
                 ?: fetchFallbackPlaylistUrl(mac)
                 ?: error("Nenhuma playlist está liberada para este MAC.")
             if (playlistUrl == currentSession.playlistUrl) return@runCatching null
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
         }
 
         val deviceResponse = checkDeviceWithFailover(mac)
@@ -213,7 +215,7 @@ class RenciaRepository {
 
         if (playlistUrl == currentSession.playlistUrl) return@runCatching null
 
-        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate)
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate, epgUrl = deviceCheck.urlEpg)
     }
 
     // ---------------------------------------------------------------
@@ -336,10 +338,10 @@ class RenciaRepository {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val config = fetchAppConfig(mac)
         if (config != null) {
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
         }
         val deviceCheck = runCatching { checkDeviceWithFailover(mac) }.getOrNull()?.body()
-        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate)
+        sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate, epgUrl = deviceCheck?.urlEpg)
     }
 
     suspend fun verifyAccess(rawMac: String): Result<com.meuapp.iptvplayer.data.model.DeviceCheckResponse> = runCatching {

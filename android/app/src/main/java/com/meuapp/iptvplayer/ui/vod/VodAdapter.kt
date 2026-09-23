@@ -6,10 +6,10 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.meuapp.iptvplayer.data.model.VodStream
 import com.meuapp.iptvplayer.databinding.ItemPosterBinding
 import com.meuapp.iptvplayer.databinding.ItemPosterHorizontalBinding
+import com.meuapp.iptvplayer.util.loadIconSafely
 
 class VodAdapter(
     private val onClick: (VodStream) -> Unit,
@@ -43,7 +43,7 @@ class VodAdapter(
         val item = items[position]
         holder.tvPosterTitle.text = item.name
         holder.tvPosterSub.text = item.rating?.let { "★ $it" } ?: ""
-        holder.ivPoster.load(item.streamIcon) { crossfade(true) }
+        holder.ivPoster.loadIconSafely(item.streamIcon, crossfade = true)
         holder.itemView.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) onFocused(item) }
         holder.itemView.setOnClickListener {
             onFocused(item)

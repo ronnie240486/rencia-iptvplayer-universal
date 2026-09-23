@@ -15,6 +15,7 @@
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
 
     <application
+        android:name=".RenciaApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

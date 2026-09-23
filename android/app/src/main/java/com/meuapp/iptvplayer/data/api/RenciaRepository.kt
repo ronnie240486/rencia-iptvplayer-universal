@@ -18,8 +18,12 @@ class RenciaRepository {
         // Painel migrou do Manus pro Railway -- o domínio antigo
         // (renciaapp.manus.space) não fala mais a API de verdade pra
         // apps novos, devolvendo resposta inválida (nem JSON) em vez de
-        // erro claro. Mesmo domínio já usado no Fusion e no Maximus.
+        // erro claro. Railway é o domínio PRIMÁRIO (mesmo usado no
+        // Fusion); o Manus fica só como FALLBACK, igual já é feito no
+        // Maximus (MacPanelClient.kt) -- pra clientes/MACs que por
+        // algum motivo ainda só estejam cadastrados no painel antigo.
         const val BASE_URL = "https://renciaapp-production.up.railway.app/"
+        const val BASE_URL_FALLBACK = "https://renciaapp.manus.space/"
         // "supremus" é o app_id oficial pra esse app (Supreme) no
         // documento de integração universal do painel -- id errado
         // ("rencia") fazia o app cair sempre nas rotas de compatibilidade
@@ -37,12 +41,17 @@ class RenciaRepository {
         private val lastRefreshCheckAt = mutableMapOf<String, Long>()
     }
 
-    private val api: RenciaApiService = Retrofit.Builder()
-        .baseUrl(BASE_URL)
-        .client(OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build())
+    private val httpClient = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
+
+    private fun buildApi(baseUrl: String): RenciaApiService = Retrofit.Builder()
+        .baseUrl(baseUrl)
+        .client(httpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(RenciaApiService::class.java)
+
+    private val api: RenciaApiService = buildApi(BASE_URL)
+    private val fallbackApi: RenciaApiService = buildApi(BASE_URL_FALLBACK)
 
     // Login por USUÁRIO/SENHA não existe mais nesse app -- o painel de
     // referência (que o usuário mandou) só ativa por MAC do aparelho.
@@ -56,13 +65,28 @@ class RenciaRepository {
 
     /** Busca a configuração completa oficial (rota prioritária pra apps
      * novos) -- traz status do MAC, mensagens, imagens, ícones e listas
-     * ativas, tudo de uma vez. */
+     * ativas, tudo de uma vez. Tenta o Railway (painel atual) primeiro; só
+     * cai pro Manus (painel antigo) se o Railway não responder nada
+     * aproveitável -- mesma ordem usada no Maximus. */
     suspend fun fetchAppConfig(mac: String): AppConfigResponse? = kotlinx.coroutines.withTimeoutOrNull(8_000) {
         runCatching {
             val response = api.getAppConfig(APP_ID, mac)
-            if (!response.isSuccessful) return@runCatching null
-            response.body()
+            if (response.isSuccessful) response.body() else null
         }.getOrNull()
+            ?: runCatching {
+                val response = fallbackApi.getAppConfig(APP_ID, mac)
+                if (response.isSuccessful) response.body() else null
+            }.getOrNull()
+    }
+
+    /** Confere o MAC pela rota antiga de compatibilidade -- Railway
+     * primeiro, Manus como reserva -- mesma ordem/lógica já usada no
+     * Maximus (MacPanelClient.kt) pra MACs que ainda não migraram. */
+    private suspend fun checkDeviceWithFailover(mac: String): retrofit2.Response<com.meuapp.iptvplayer.data.model.DeviceCheckResponse> {
+        val primary = runCatching { api.checkDevice(mac) }.getOrNull()
+        if (primary != null && primary.isSuccessful) return primary
+        val fallback = runCatching { fallbackApi.checkDevice(mac) }.getOrNull()
+        return fallback ?: primary ?: error("Não foi possível verificar o acesso (Railway e Manus indisponíveis).")
     }
 
     /** Fluxo real de ativação: MAC do aparelho -> rota oficial de
@@ -85,9 +109,10 @@ class RenciaRepository {
         }
 
         // Rota oficial não respondeu -- cai pra rota antiga de
-        // compatibilidade (checkDevice), pra não deixar o app sem
-        // funcionar em painéis mais antigos.
-        val deviceResponse = api.checkDevice(mac)
+        // compatibilidade (checkDevice), já tentando Railway e depois
+        // Manus, pra não deixar o app sem funcionar em painéis mais
+        // antigos nem por causa de um MAC ainda não migrado.
+        val deviceResponse = checkDeviceWithFailover(mac)
         if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
         val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
         if (!deviceCheck.found) error("Este MAC não está cadastrado no painel.")
@@ -102,14 +127,20 @@ class RenciaRepository {
 
     /** Alguns dispositivos só têm a playlist cadastrada na fonte alternativa
      * (guim.php), não na rota de configuração principal -- tenta essa
-     * antes de desistir de vez. */
-    private suspend fun fetchFallbackPlaylistUrl(mac: String): String? = runCatching {
-        val response = api.getPlaylistSources(mac)
-        if (!response.isSuccessful) return null
-        response.body()?.data?.firstNotNullOfOrNull { source ->
-            source.url?.takeIf { it.isNotBlank() }
-        }
-    }.getOrNull()
+     * antes de desistir de vez. Railway primeiro, Manus como reserva. */
+    private suspend fun fetchFallbackPlaylistUrl(mac: String): String? {
+        val fromPrimary = runCatching {
+            val response = api.getPlaylistSources(mac)
+            if (!response.isSuccessful) return@runCatching null
+            response.body()?.data?.firstNotNullOfOrNull { source -> source.url?.takeIf { it.isNotBlank() } }
+        }.getOrNull()
+        if (fromPrimary != null) return fromPrimary
+        return runCatching {
+            val response = fallbackApi.getPlaylistSources(mac)
+            if (!response.isSuccessful) return@runCatching null
+            response.body()?.data?.firstNotNullOfOrNull { source -> source.url?.takeIf { it.isNotBlank() } }
+        }.getOrNull()
+    }
 
     private fun sessionFromPlaylistUrl(
         playlistUrl: String,
@@ -170,7 +201,7 @@ class RenciaRepository {
             return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
         }
 
-        val deviceResponse = api.checkDevice(mac)
+        val deviceResponse = checkDeviceWithFailover(mac)
         if (!deviceResponse.isSuccessful) error("Não foi possível verificar o acesso (HTTP ${deviceResponse.code()})")
         val deviceCheck = deviceResponse.body() ?: error("Resposta inválida do servidor")
         if (!deviceCheck.found) error("Este MAC não está mais cadastrado no painel.")
@@ -278,12 +309,13 @@ class RenciaRepository {
                 }
             }
         } else {
-            runCatching { api.checkDevice(mac) }.getOrNull()?.body()?.urlM3u8
+            runCatching { checkDeviceWithFailover(mac) }.getOrNull()?.body()?.urlM3u8
                 ?.takeIf { it.isNotBlank() }
                 ?.let { options.add(PlaylistOption("Lista principal", it)) }
         }
 
-        runCatching { api.getPlaylistSources(mac) }.getOrNull()?.body()?.data
+        (runCatching { api.getPlaylistSources(mac) }.getOrNull()?.body()?.data
+            ?: runCatching { fallbackApi.getPlaylistSources(mac) }.getOrNull()?.body()?.data)
             ?.forEachIndexed { index, source ->
                 val url = source.url?.takeIf { it.isNotBlank() } ?: return@forEachIndexed
                 if (options.none { it.playlistUrl == url }) {
@@ -306,13 +338,13 @@ class RenciaRepository {
         if (config != null) {
             return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate)
         }
-        val deviceCheck = runCatching { api.checkDevice(mac) }.getOrNull()?.body()
+        val deviceCheck = runCatching { checkDeviceWithFailover(mac) }.getOrNull()?.body()
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate)
     }
 
     suspend fun verifyAccess(rawMac: String): Result<com.meuapp.iptvplayer.data.model.DeviceCheckResponse> = runCatching {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
-        val response = api.checkDevice(mac)
+        val response = checkDeviceWithFailover(mac)
         if (!response.isSuccessful) error("Não foi possível verificar o acesso")
         response.body() ?: error("Resposta inválida do servidor")
     }

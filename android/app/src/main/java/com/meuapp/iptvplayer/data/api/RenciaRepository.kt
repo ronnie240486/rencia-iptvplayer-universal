@@ -89,6 +89,18 @@ class RenciaRepository {
         return fallback ?: primary ?: error("Não foi possível verificar o acesso (Railway e Manus indisponíveis).")
     }
 
+    /** A rota nova (/config) ainda não confirmou o nome do campo que traz
+     * a "URL EPG" cadastrada no painel (Editar Usuário) -- então, sempre
+     * que essa rota não trouxer isso preenchido, busca na rota antiga
+     * (checkDevice), que já usa o campo confirmado "urlEpg", só pra
+     * completar esse dado. Não deixa a ativação mais lenta nem quebra
+     * nada se falhar -- é só uma tentativa extra, best-effort. */
+    private suspend fun resolveEpgUrl(mac: String, fromConfig: String?): String? {
+        if (!fromConfig.isNullOrBlank()) return fromConfig
+        return runCatching { checkDeviceWithFailover(mac).body()?.urlEpg }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     /** Fluxo real de ativação: MAC do aparelho -> rota oficial de
      * configuração confirma acesso -> devolve a URL da playlist Xtream já
      * liberada pra esse MAC. Se a rota oficial não tiver a URL, tenta a
@@ -105,7 +117,7 @@ class RenciaRepository {
             val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
                 ?: fetchFallbackPlaylistUrl(mac)
                 ?: error("Nenhuma playlist foi liberada para este MAC.")
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = resolveEpgUrl(mac, config.epgUrl))
         }
 
         // Rota oficial não respondeu -- cai pra rota antiga de
@@ -200,7 +212,7 @@ class RenciaRepository {
                 ?: fetchFallbackPlaylistUrl(mac)
                 ?: error("Nenhuma playlist está liberada para este MAC.")
             if (playlistUrl == currentSession.playlistUrl) return@runCatching null
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = resolveEpgUrl(mac, config.epgUrl))
         }
 
         val deviceResponse = checkDeviceWithFailover(mac)
@@ -338,7 +350,7 @@ class RenciaRepository {
         val mac = normalizeMac(rawMac) ?: error("MAC inválido")
         val config = fetchAppConfig(mac)
         if (config != null) {
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = config.epgUrl)
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = resolveEpgUrl(mac, config.epgUrl))
         }
         val deviceCheck = runCatching { checkDeviceWithFailover(mac) }.getOrNull()?.body()
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck?.app, deviceCheck?.status, deviceCheck?.expirationDate, epgUrl = deviceCheck?.urlEpg)

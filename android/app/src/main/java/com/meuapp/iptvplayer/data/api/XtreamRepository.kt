@@ -808,7 +808,17 @@ class XtreamRepository(context: Context? = null) {
      * entra direto, sem mostrar barra de progresso nenhuma, quando já tem
      * a lista guardada de uma sessão anterior. */
     fun hasCachedPlaylist(session: Session): Boolean {
-        if (session.playlistUrl.isNullOrBlank()) return false
+        // BUG CRÍTICO corrigido: essa checagem de "session.playlistUrl"
+        // aqui em cima era sobra de quando o cache era guardado pela URL
+        // da playlist (comentário de cacheKeyFor acima explica a
+        // migração pra usar o MAC). Ela fazia essa função devolver falso
+        // -- descartando um cache que TINHA acabado de ser gravado com
+        // sucesso -- sempre que o objeto Session em mãos não trouxesse
+        // playlistUrl preenchido nesse momento específico, mesmo com o
+        // MAC certo e o arquivo de verdade presente em disco. Era isso
+        // que fazia o app voltar pra tela de ativação e rebaixar a lista
+        // inteira de novo TODA vez que abria, em vez de abrir na hora
+        // com o que já tinha salvo.
         val key = cacheKeyFor(session).ifBlank { return false }
         if (m3uCache.containsKey(key)) return true
         return m3uCacheFile(key)?.exists() == true

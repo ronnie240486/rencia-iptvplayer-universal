@@ -211,8 +211,16 @@ class RenciaRepository {
             val playlistUrl = config.playlistUrls.firstOrNull { it.isNotBlank() }
                 ?: fetchFallbackPlaylistUrl(mac)
                 ?: error("Nenhuma playlist está liberada para este MAC.")
-            if (playlistUrl == currentSession.playlistUrl) return@runCatching null
-            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = resolveEpgUrl(mac, config.epgUrl))
+            val resolvedEpgUrl = resolveEpgUrl(mac, config.epgUrl)
+            // BUG CRÍTICO corrigido: só comparava a URL da playlist pra
+            // decidir se tinha "mudado algo" -- se o cliente só editasse a
+            // "URL EPG" no painel (sem trocar de lista), essa checagem
+            // achava que não mudou NADA e descartava a sessão nova inteira
+            // (com o EPG atualizado junto), voltando null. Por isso o app
+            // continuava usando a URL de EPG antiga/adivinhada mesmo depois
+            // do painel já ter uma nova cadastrada.
+            if (playlistUrl == currentSession.playlistUrl && resolvedEpgUrl == currentSession.epgUrl) return@runCatching null
+            return@runCatching sessionFromPlaylistUrl(playlistUrl, mac, config.appName, config.status, config.expirationDate, epgUrl = resolvedEpgUrl)
         }
 
         val deviceResponse = checkDeviceWithFailover(mac)
@@ -225,7 +233,8 @@ class RenciaRepository {
             ?: fetchFallbackPlaylistUrl(mac)
             ?: error("Nenhuma playlist está liberada para este MAC.")
 
-        if (playlistUrl == currentSession.playlistUrl) return@runCatching null
+        // Mesma correção acima, pra rota antiga de compatibilidade.
+        if (playlistUrl == currentSession.playlistUrl && deviceCheck.urlEpg == currentSession.epgUrl) return@runCatching null
 
         sessionFromPlaylistUrl(playlistUrl, mac, deviceCheck.app, deviceCheck.status, deviceCheck.expirationDate, epgUrl = deviceCheck.urlEpg)
     }

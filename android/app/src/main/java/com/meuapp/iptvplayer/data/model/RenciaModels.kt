@@ -23,7 +23,14 @@ data class PlaylistSource(
     @SerializedName("url") val url: String? = null,
     @SerializedName("username") val username: String? = null,
     @SerializedName("password") val password: String? = null,
-    @SerializedName("type") val type: String? = null
+    @SerializedName("type") val type: String? = null,
+    // Nome/apelido que o PAINEL cadastra pra cada lista (o "vários
+    // escritos tema" que aparece em Editar Usuário > Listas do cliente) --
+    // antes não existia esse campo aqui, então "Trocar de lista" nunca
+    // conseguia mostrar esses nomes de verdade, só rótulos genéricos tipo
+    // "Lista alternativa 2". Nome exato do campo na API ainda não
+    // confirmado, então aceita as variações mais prováveis.
+    @SerializedName(value = "name", alternate = ["nome", "label", "titulo", "descricao", "apelido", "list_name", "playlist_name", "tema"]) val name: String? = null
 )
 
 data class RenciaLoginResponse(

@@ -26,6 +26,14 @@ data class AppConfigResponse(
     @SerializedName("icons") val icons: AppIcons? = null,
     @SerializedName("player") val player: AppPlayerPrefs? = null,
     @SerializedName("playlist_urls") val playlistUrls: List<String> = emptyList(),
+    // Nomes/temas que o painel cadastra pra cada lista (paralelo a
+    // playlist_urls -- mesmo índice = mesma lista, o "vários escritos
+    // tema" que aparece em Editar Usuário > Listas do cliente). Sem isso,
+    // "Trocar de lista" só conseguia mostrar rótulos genéricos ("Lista
+    // principal", "Lista 2"), nunca os nomes de verdade cadastrados no
+    // painel. Nome exato do campo ainda não confirmado, aceita as
+    // variações mais prováveis.
+    @SerializedName(value = "playlist_names", alternate = ["playlistNames", "nomes_listas", "list_names", "playlist_labels"]) val playlistNames: List<String> = emptyList(),
     // Campo "URL EPG (opcional)" cadastrado no painel (Editar Usuário) --
     // nome exato da chave ainda não confirmado nessa rota nova, então
     // aceita as variações mais prováveis (a rota antiga/legada usa

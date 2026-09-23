@@ -1136,6 +1136,20 @@ class XtreamRepository(context: Context? = null) {
         val universalFallbackUrl = "http://iptv-epg.org/files/epg-br.xml"
         val candidates = listOfNotNull(panelUrl, declaredUrl, fallbackUrl, universalFallbackUrl).distinct()
 
+        // BUG CRÍTICO DE PERFORMANCE corrigido: essa lista de nomes
+        // normalizados (um por canal da playlist inteira -- pode ter
+        // MILHARES) não muda de uma URL de guia pra outra, mas antes era
+        // recalculada do ZERO a cada candidato testado (até 4x, incluindo
+        // a fonte universal, que sozinha já tem dezenas de milhares de
+        // entradas). Numa lista grande, isso multiplicava um trabalho já
+        // pesado por até 4 -- exatamente o que fazia a caixa de
+        // "PROGRAMAÇÃO" ficar em "Buscando programação…" por tempo
+        // demais (na prática, parecendo travado pra sempre). Calculado
+        // UMA vez só aqui fora, antes de testar qualquer candidato.
+        val namesNeeded = channels.mapNotNull { ch ->
+            XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
+        }.toSet()
+
         for (epgUrl in candidates) {
             // Guarda em cache mesmo quando o resultado vem vazio (sem
             // canal nenhum batendo) -- sem isso, cada troca de canal
@@ -1169,9 +1183,6 @@ class XtreamRepository(context: Context? = null) {
                     // CENTENAS de canais (inclusive o certo) davam "nenhum
                     // bate com este" mesmo assim.
                     val nameToGuideId = XmlTvParser.parseChannelNames(xml)
-                    val namesNeeded = channels.mapNotNull { ch ->
-                        XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
-                    }.toSet()
                     val idsFromNames = namesNeeded.mapNotNull { nameToGuideId[it] }.map { it.lowercase() }.toSet()
                     val byId = XmlTvParser.parse(xml, tvgIds + idsFromNames)
                     // Espelha cada canal resolvido só por NOME também sob a

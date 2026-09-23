@@ -455,11 +455,17 @@ class ChannelListActivity : AppCompatActivity() {
                 // Cancela o cão de guarda -- a busca terminou de um jeito
                 // ou de outro (não precisa mais forçar nada à força).
                 binding.root.removeCallbacks(watchdog)
-                // Garantia: se por qualquer motivo (cancelamento, erro
-                // inesperado) a busca não terminou de resolver nada, ainda
-                // assim mostra o aviso padrão em vez de deixar a área de
-                // programação em branco pra sempre.
+                // BUG CRÍTICO corrigido: essa garantia já existia, mas só
+                // chamava showMiniGuideResult(emptyList()), que troca a
+                // VISIBILIDADE (mostra a área de aviso), sem nunca trocar
+                // o TEXTO dela -- se algo desse errado antes de qualquer
+                // .onSuccess/.onFailure rodar (cancelamento, exceção
+                // inesperada), o texto continuava sendo literalmente
+                // "Buscando programação…" pra sempre, mesmo com a área já
+                // "resolvida". Era exatamente esse o "fica preso
+                // buscando" que não sumia nem depois de muito tempo.
                 if (!resolved) {
+                    binding.tvMiniGuideEmpty.text = "Não foi possível carregar a programação agora"
                     showMiniGuideResult(emptyList())
                 }
             }

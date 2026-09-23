@@ -328,7 +328,14 @@ class RenciaRepository {
         if (config != null) {
             config.playlistUrls.forEachIndexed { index, url ->
                 if (url.isNotBlank() && options.none { it.playlistUrl == url }) {
-                    options.add(PlaylistOption(if (index == 0) "Lista principal" else "Lista ${index + 1}", url))
+                    // Usa o NOME de verdade cadastrado no painel pra essa
+                    // lista (mesmo índice de playlist_names), quando a API
+                    // mandar isso -- antes só existia o rótulo genérico
+                    // "Lista N", mesmo o painel tendo um nome próprio
+                    // cadastrado (ex: por tema).
+                    val panelName = config.playlistNames.getOrNull(index)?.takeIf { it.isNotBlank() }
+                    val label = panelName ?: if (index == 0) "Lista principal" else "Lista ${index + 1}"
+                    options.add(PlaylistOption(label, url))
                 }
             }
         } else {
@@ -342,8 +349,12 @@ class RenciaRepository {
             ?.forEachIndexed { index, source ->
                 val url = source.url?.takeIf { it.isNotBlank() } ?: return@forEachIndexed
                 if (options.none { it.playlistUrl == url }) {
-                    val label = source.type?.takeIf { it.isNotBlank() }
-                        ?.let { "Lista: $it" } ?: "Lista alternativa ${index + 1}"
+                    // Mesma prioridade: nome de verdade cadastrado no
+                    // painel primeiro, "type" depois, número genérico só
+                    // como último recurso.
+                    val label = source.name?.takeIf { it.isNotBlank() }
+                        ?: source.type?.takeIf { it.isNotBlank() }?.let { "Lista: $it" }
+                        ?: "Lista alternativa ${index + 1}"
                     options.add(PlaylistOption(label, url))
                 }
             }

@@ -455,12 +455,18 @@ class ChannelListActivity : AppCompatActivity() {
     private suspend fun diagnoseEpgEmpty(session: com.meuapp.iptvplayer.data.api.Session, channel: LiveStream) {
         val diag = repository.diagnoseEpg(session, channel.epgChannelId, channel.name)
         val searchInfo = "(procurando por tvg-id=\"${diag.searchedTvgId ?: "nenhum"}\" ou nome=\"${diag.searchedNormalizedName ?: "nenhum"}\")"
+        // DIAGNÓSTICO TEMPORÁRIO: mostra qual das 4 fontes de guia
+        // (painel/playlist/xmltv.php/universal) foi a que respondeu --
+        // pra confirmar de vez, com a URL na tela, se o guia cadastrado
+        // no painel está sendo usado de verdade ou se ainda está caindo
+        // numa das fontes de adivinhação.
+        val fonteInfo = "(fonte: ${diag.epgUrl ?: "nenhuma"})"
         val reason = when {
             !diag.hasTvgId -> "este canal não tem um tvg-id na playlist (a lista não diz qual é o ID de programação dele)"
             !diag.hasEpgUrlDeclared -> "nenhuma das 4 fontes de guia (URL EPG do painel, playlist, xmltv.php do painel, guia universal) tem dado nenhum pra este canal $searchInfo"
-            diag.guideChannelCount == 0 -> "o guia declarado na lista não retornou nenhum canal (pode estar fora do ar ou vazio)"
-            !diag.hasMatchForThisChannel -> "o guia tem ${diag.guideChannelCount} canais, mas nenhum bate com este $searchInfo"
-            else -> "sem programação futura cadastrada pra este canal agora"
+            diag.guideChannelCount == 0 -> "o guia declarado na lista não retornou nenhum canal (pode estar fora do ar ou vazio) $fonteInfo"
+            !diag.hasMatchForThisChannel -> "o guia tem ${diag.guideChannelCount} canais, mas nenhum bate com este $searchInfo $fonteInfo"
+            else -> "sem programação futura cadastrada pra este canal agora $fonteInfo"
         }
         binding.tvMiniGuideEmpty.text = "Sem programação: $reason"
         showMiniGuideResult(emptyList())

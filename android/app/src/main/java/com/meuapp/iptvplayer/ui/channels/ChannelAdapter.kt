@@ -6,9 +6,9 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
 import com.meuapp.iptvplayer.data.model.LiveStream
 import com.meuapp.iptvplayer.databinding.ItemChannelBinding
+import com.meuapp.iptvplayer.util.loadIconSafely
 
 private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<LiveStream>() {
     override fun areItemsTheSame(oldItem: LiveStream, newItem: LiveStream): Boolean =
@@ -83,7 +83,7 @@ class ChannelAdapter(
         // trabalho extra durante rolagem rápida (muitos itens reciclando
         // ao mesmo tempo), o que causava umas travadinhas passageiras ao
         // descer a lista. As logos são pequenas, não faz falta.
-        holder.binding.ivIcon.load(channel.streamIcon)
+        holder.binding.ivIcon.loadIconSafely(channel.streamIcon)
     }
 
     class ViewHolder(val binding: ItemChannelBinding) : RecyclerView.ViewHolder(binding.root) {

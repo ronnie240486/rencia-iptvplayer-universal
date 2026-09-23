@@ -113,6 +113,11 @@ class PlayerActivity : AppCompatActivity() {
         binding.btnFavorite.setOnClickListener {
             val posterUrl = intent.getStringExtra(EXTRA_POSTER_URL)
             val epgChannelId = intent.getStringExtra(EXTRA_EPG_CHANNEL_ID)
+            // Guarda o stream_id real recebido do canal (0 = não tem) --
+            // sem isso, favoritar aqui na tela cheia também perdia o ID e
+            // o canal caía no chute de guia XMLTV depois, na lista de
+            // Favoritos, mesmo tendo EPG ao vivo disponível.
+            val streamIdForFavorite = intent.getIntExtra(EXTRA_STREAM_ID, 0)
             isFavorite = FavoritesStore.toggle(
                 this,
                 FavoriteItem(
@@ -121,7 +126,8 @@ class PlayerActivity : AppCompatActivity() {
                     posterUrl = posterUrl,
                     streamUrl = streamUrl,
                     addedAt = System.currentTimeMillis(),
-                    epgChannelId = epgChannelId
+                    epgChannelId = epgChannelId,
+                    streamId = streamIdForFavorite
                 )
             )
             updateFavoriteIcon()

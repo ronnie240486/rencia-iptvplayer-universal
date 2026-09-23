@@ -137,26 +137,12 @@ class LoginActivity : AppCompatActivity() {
             finish()
             return
         }
-        // DIAGNÓSTICO TEMPORÁRIO: mostra exatamente qual parte da checagem
-        // acima falhou, pra eu poder ver o motivo exato em vez de
-        // continuar tentando adivinhar. Vou tirar isso assim que
-        // descobrir o problema real.
-        val motivo = when {
-            session == null -> "sessão salva é nula"
-            session.mac.isBlank() -> "MAC salvo está vazio"
-            !xtreamRepository.hasCachedPlaylist(session) -> {
-                val lastWrite = getSharedPreferences("supremus_cache_diag", MODE_PRIVATE).getString("last_write_result", "nenhuma gravação registrada ainda")
-                "hasCachedPlaylist falso. Última gravação: $lastWrite"
-            }
-            else -> "motivo desconhecido"
-        }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Diagnóstico (temporário)")
-            .setMessage(motivo)
-            .setPositiveButton("OK") { _, _ -> activateDevice(silent = true) }
-            .setCancelable(false)
-            .show()
-        return
+        // Sem sessão/cache aproveitável ainda -- tenta ativar sozinho,
+        // sem interromper com nenhum diálogo (o diagnóstico que existia
+        // aqui era temporário só pra achar o bug do hasCachedPlaylist
+        // acima, já corrigido -- exigir um toque em "OK" toda vez que o
+        // app abria também deixava a abertura mais lenta que precisava).
+        activateDevice(silent = true)
     }
 
     override fun onStop() {
@@ -272,12 +258,6 @@ class LoginActivity : AppCompatActivity() {
                         lastUpdateAt = now
                         runOnUiThread { updateProgress(percent) }
                     }
-                }
-                // DIAGNÓSTICO TEMPORÁRIO: mostra quanto tempo cada etapa do
-                // primeiro download/processamento levou -- será removido
-                // assim que não for mais necessário.
-                com.meuapp.iptvplayer.data.api.XtreamRepository.lastLoadTiming?.let {
-                    android.widget.Toast.makeText(this@LoginActivity, it, android.widget.Toast.LENGTH_LONG).show()
                 }
             } else {
                 binding.tvLoadingStatus.text = "Carregando categorias…"

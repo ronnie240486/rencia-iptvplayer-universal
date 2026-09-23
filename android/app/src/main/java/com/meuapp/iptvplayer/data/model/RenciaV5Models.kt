@@ -26,6 +26,14 @@ data class AppConfigResponse(
     @SerializedName("icons") val icons: AppIcons? = null,
     @SerializedName("player") val player: AppPlayerPrefs? = null,
     @SerializedName("playlist_urls") val playlistUrls: List<String> = emptyList(),
+    // Campo "URL EPG (opcional)" cadastrado no painel (Editar Usuário) --
+    // nome exato da chave ainda não confirmado nessa rota nova, então
+    // aceita as variações mais prováveis (a rota antiga/legada usa
+    // "urlEpg"). Sem isso, o app não tinha como saber que o painel já
+    // tem um guia de programação completo cadastrado pra esse cliente,
+    // e ficava só adivinhando (xmltv.php no próprio servidor Xtream, que
+    // pode nem existir se o guia estiver noutro domínio, como aqui).
+    @SerializedName(value = "epg_url", alternate = ["urlEpg", "url_epg", "epgUrl"]) val epgUrl: String? = null,
     @SerializedName("expiration_date") val expirationDate: String? = null,
     @SerializedName("expiration_show_modal") val expirationShowModal: Boolean = false,
     @SerializedName("expiration_modal_key") val expirationModalKey: String? = null,

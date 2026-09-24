@@ -1180,14 +1180,39 @@ class XtreamRepository(context: Context? = null) {
             // Guarda em cache mesmo quando o resultado vem vazio (sem
             // canal nenhum batendo) -- sem isso, cada troca de canal
             // tentava baixar as 3 fontes de novo do ZERO, mesmo já
-            // sabendo que nenhuma tinha dado certo antes. Só volta a
-            // tentar quando é falha de REDE de verdade (não "sem dados").
+            // sabendo que nenhuma tinha dado certo antes.
             val alreadyChecked = xmlTvCache[epgUrl]
             if (alreadyChecked != null) {
                 if (alreadyChecked.isNotEmpty()) return alreadyChecked
                 continue
             }
-            val xml = runCatching { fetchBody(epgUrl) }.getOrNull() ?: continue
+            // BUG CRÍTICO corrigido: esse era o VERDADEIRO motivo de
+            // "Buscando programação..." ficar preso por muito tempo em
+            // praticamente TODO canal testado. Duas causas juntas:
+            // 1) o cliente HTTP permite até 15s de conexão + 20s de
+            //    leitura POR TENTATIVA, com uma segunda tentativa embutida
+            //    em fetchBody() se a conexão cortar no meio -- ou seja,
+            //    uma ÚNICA fonte lenta/fora do ar podia levar até ~70s
+            //    pra desistir, e existem até 4 fontes candidatas testadas
+            //    em sequência (até ~280s no pior caso).
+            // 2) uma falha de rede (timeout, conexão recusada, etc) NÃO
+            //    era guardada em cache -- só "baixou mas não achou nada"
+            //    era. Então se a URL do painel (ou o xmltv.php do próprio
+            //    servidor) estivesse lenta ou fora do ar, TODA troca de
+            //    canal pagava esse mesmo preço de novo, do zero, pra
+            //    sempre -- exatamente o "nunca resolve" que se via na
+            //    tela.
+            // Agora: cada fonte tem só 10s pra responder (desiste rápido
+            // e passa pra próxima), e uma falha também fica em cache como
+            // "sem dados" -- só tenta de novo se trocar de lista ou
+            // atualizar manualmente (que limpam esse cache).
+            val xml = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                runCatching { fetchBody(epgUrl) }.getOrNull()
+            }
+            if (xml == null) {
+                xmlTvCache[epgUrl] = emptyMap()
+                continue
+            }
             // CRÍTICO: precisa rodar em Dispatchers.IO -- esse parser
             // (XmlPullParser + regex por programa) processa um arquivo que
             // pode ter dezenas de milhares de entradas (principalmente a

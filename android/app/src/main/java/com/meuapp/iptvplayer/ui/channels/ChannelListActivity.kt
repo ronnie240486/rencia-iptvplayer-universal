@@ -386,10 +386,13 @@ class ChannelListActivity : AppCompatActivity() {
         // chamada de rede travar de um jeito que nem o timeout do
         // coroutine consegue interromper (acontece com chamadas
         // bloqueantes de verdade), isso aqui ainda dispara e força uma
-        // resposta, garantido. SEM PRESSA: como a busca do guia inteiro já
-        // acontece bem mais cedo (na Home, antes até de abrir essa tela),
-        // esse limite aqui é só uma rede de segurança de última instância
-        // -- não interrompe nada no uso normal.
+        // resposta, garantido.
+        // Prazo reduzido de 95s pra 50s: as 4 fontes de guia agora
+        // desistem sozinhas em até 10s CADA (ver fetchXmlTvGuide), então
+        // o pior caso de verdade é bem menor que antes -- e 90-95s de
+        // "Buscando..." sem nada acontecendo na tela é tempo demais pra
+        // qualquer pessoa esperar, mesmo quando ia resolver sozinho no
+        // final.
         val watchdog = Runnable {
             if (binding.tvMiniGuideEmpty.text == "Buscando programação…") {
                 binding.tvMiniGuideEmpty.text = "Esta lista não fornece programação (EPG) para este canal"
@@ -397,7 +400,7 @@ class ChannelListActivity : AppCompatActivity() {
             }
         }
         miniGuideWatchdog = watchdog
-        binding.root.postDelayed(watchdog, 95_000)
+        binding.root.postDelayed(watchdog, 50_000)
         miniGuideJob = lifecycleScope.launch {
             var resolved = false
             try {
@@ -419,7 +422,10 @@ class ChannelListActivity : AppCompatActivity() {
                     // demorar demais (rede lenta tentando as 4 fontes de
                     // guia), desiste e mostra o aviso genérico em vez de
                     // deixar a área de programação em branco pra sempre.
-                    val result = kotlinx.coroutines.withTimeoutOrNull(90_000) {
+                    // Reduzido de 90s pra 45s -- cada uma das 4 fontes já
+                    // desiste sozinha em até 10s (ver fetchXmlTvGuide), então
+                    // não precisa mais desse prazo tão folgado.
+                    val result = kotlinx.coroutines.withTimeoutOrNull(45_000) {
                         repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name)
                     }
                     if (result == null) {

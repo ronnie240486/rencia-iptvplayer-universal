@@ -79,7 +79,13 @@ class EpgGuideActivity : AppCompatActivity() {
                     for (category in safeCategories.take(6)) {
                         val channels = repository.getLiveStreams(session, category.categoryId).getOrNull().orEmpty()
                         for (channel in channels.take(6)) {
-                            val listings: List<EpgListing> = if (channel.directStreamUrl != null) {
+                            // Mesma correção da mini-guia (ver ChannelListActivity.loadMiniGuide):
+                            // só usa o caminho de adivinhar por XMLTV quando o canal
+                            // realmente não tem stream_id de verdade -- agora que
+                            // M3uParser extrai o ID de dentro da própria URL, a
+                            // maioria dos canais de playlist M3U cai aqui no
+                            // caminho AO VIVO (get_short_epg), igual Maximus.
+                            val listings: List<EpgListing> = if (channel.streamId <= 0 && channel.directStreamUrl != null) {
                                 repository.getEpgFromPlaylist(session, channel.epgChannelId, channel.name).getOrNull().orEmpty().map { p ->
                                     EpgListing(
                                         id = "", titleBase64 = p.title, descriptionBase64 = null,

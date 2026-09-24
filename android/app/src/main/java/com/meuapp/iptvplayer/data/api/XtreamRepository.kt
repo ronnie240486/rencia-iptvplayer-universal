@@ -66,6 +66,13 @@ class XtreamRepository(context: Context? = null) {
         // sobrevive, some quando o processo do app é encerrado).
         private var appContext: Context? = null
         private val xmlTvCache = mutableMapOf<String, Map<String, List<XmlTvProgramme>>>() // epgUrl -> programação por canal
+        // Nomes normalizados dos canais da lista (usado pra casar canal
+        // por NOME com o guia, quando o tvg-id não bate -- ver
+        // fetchXmlTvGuide) -- não muda enquanto a lista não mudar, mas
+        // antes era recalculado em TODA chamada, mesmo quando o resultado
+        // já vinha do cache (xmlTvCache) e nem chegava a ser usado.
+        // Guardado por cacheKey pra só custar uma vez por sessão.
+        private val namesNeededCache = mutableMapOf<String, Set<String>>() // cacheKey -> nomes normalizados
         // Canais ao vivo já separados por categoria -- classificar cada
         // canal (é filme? série? ao vivo?) envolve verificações de regex
         // por canal, e refazer isso pra LISTA INTEIRA a cada categoria que
@@ -216,6 +223,10 @@ class XtreamRepository(context: Context? = null) {
         val key = cacheKeyFor(session).ifBlank { return }
         m3uCache.remove(key)
         epgUrlCache.remove(key)
+        // Nomes normalizados dos canais (ver fetchXmlTvGuide) -- se não
+        // limpar aqui, depois de trocar de lista o app continuava casando
+        // canal por NOME usando os nomes da lista ANTIGA.
+        namesNeededCache.remove(key)
         // Preexistente: essa função já não limpava os caches por categoria
         // antes -- ficavam "presos" com dados da lista ANTIGA depois de
         // "Atualizar conteúdo" trocar de lista. Agora mais importante
@@ -1153,10 +1164,16 @@ class XtreamRepository(context: Context? = null) {
         // está respondendo" (ANR) -- exatamente o travamento ao trocar de
         // categoria. Precisa desse withContext aqui TAMBÉM, não só lá
         // dentro do laço.
-        val namesNeeded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        // Guardado em cache por sessão (namesNeededCache) -- sem isso,
+        // TODA troca de canal recalculava isso de novo (mesmo quando o
+        // resultado final vinha 100% do cache pronto em xmlTvCache
+        // algumas linhas abaixo e esse cálculo nem chegava a ser usado),
+        // ainda gastando um tempo de CPU real (em segundo plano, sem
+        // travar a tela, mas desnecessário) a cada canal selecionado.
+        val namesNeeded = namesNeededCache[cacheKey] ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             channels.mapNotNull { ch ->
                 XmlTvParser.normalizeChannelName(M3uParser.stripQualitySuffixPublic(ch.name)).takeIf { it.isNotBlank() }
-            }.toSet()
+            }.toSet().also { namesNeededCache[cacheKey] = it }
         }
 
         for (epgUrl in candidates) {

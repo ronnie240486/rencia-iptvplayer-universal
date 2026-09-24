@@ -212,13 +212,31 @@ object M3uParser {
             .sortedBy { it.lowercase() }
             .map { group -> Category(categoryId = group, categoryName = group) }
 
+    /** Extrai o stream_id NUMÉRICO de verdade de dentro da própria URL do
+     * canal, quando ela segue o padrão Xtream Codes de sempre
+     * (".../live/usuario/senha/12345.ts", ".../12345.m3u8" ou até sem
+     * extensão nenhuma no final). BUG CRÍTICO corrigido: antes, TODO canal
+     * vindo de uma playlist M3U ficava com streamId=0 fixo, mesmo quando
+     * o painel por trás era um Xtream Codes de verdade com get_short_epg
+     * funcionando -- confirmado na prática: a MESMA lista mostra
+     * programação certinha no Maximus, que SEMPRE usa get_short_epg com o
+     * stream_id real, nunca adivinha por arquivo XMLTV. Sem esse ID, o
+     * app ficava preso no caminho frágil de adivinhar por tvg-id/nome
+     * contra um guia externo -- quando podia simplesmente perguntar direto
+     * pra API do painel, exatamente como os outros apps fazem. */
+    private fun extractStreamId(streamUrl: String): Int {
+        val lastSegment = streamUrl.substringAfterLast('/').substringBefore('?').substringBefore('#')
+        val withoutExtension = lastSegment.substringBeforeLast('.', lastSegment)
+        return withoutExtension.toIntOrNull()?.takeIf { it > 0 } ?: 0
+    }
+
     fun toLiveStreams(channels: List<ParsedChannel>, categoryName: String): List<LiveStream> =
         channels.filter { it.groupTitle == categoryName }
             .mapIndexed { index, channel ->
                 LiveStream(
                     num = index + 1,
                     name = channel.name,
-                    streamId = 0,
+                    streamId = extractStreamId(channel.streamUrl),
                     streamIcon = channel.logoUrl,
                     categoryId = categoryName,
                     epgChannelId = channel.tvgId,
